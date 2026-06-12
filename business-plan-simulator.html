@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2027事業計画シミュレーター</title>
+  <style>
+    :root {
+      --bg: #f5efe3;
+      --panel: rgba(255, 251, 244, 0.88);
+      --panel-strong: #fffaf1;
+      --ink: #1f2a37;
+      --muted: #5d6b7a;
+      --line: rgba(31, 42, 55, 0.12);
+      --accent: #c46a2f;
+      --accent-deep: #7f3b14;
+      --accent-soft: #f2c078;
+      --teal: #2b6f77;
+      --rose: #b4545f;
+      --good: #2f7a4b;
+      --warn: #b06a1d;
+      --bad: #a23d3d;
+      --shadow: 0 18px 40px rgba(89, 59, 27, 0.12);
+      --radius: 22px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(196, 106, 47, 0.22), transparent 28%),
+        radial-gradient(circle at top right, rgba(43, 111, 119, 0.16), transparent 26%),
+        linear-gradient(180deg, #f9f2e5 0%, #f3eadf 44%, #efe7da 100%);
+      font-family: "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+      line-height: 1.5;
+    }
+
+    .page {
+      width: min(1380px, calc(100vw - 28px));
+      margin: 20px auto 48px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 28px;
+      border-radius: 28px;
+      background:
+        linear-gradient(140deg, rgba(255, 250, 241, 0.98), rgba(250, 240, 223, 0.92)),
+        linear-gradient(90deg, rgba(196, 106, 47, 0.18), rgba(43, 111, 119, 0.08));
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -60px -80px auto;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(196, 106, 47, 0.18), transparent 66%);
+      pointer-events: none;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.1;
+      max-width: 780px;
+    }
+
+    .hero p {
+      margin: 14px 0 0;
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-top: 22px;
+    }
+
+    .metric {
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.92);
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      padding: 20px;
+      border-radius: var(--radius);
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .panel h2 {
+      font-size: 22px;
+      margin-bottom: 14px;
+    }
+
+    .panel h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    .section + .section {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input, select, button, textarea {
+      width: 100%;
+      border: 1px solid rgba(31, 42, 55, 0.14);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--ink);
+      font: inherit;
+    }
+
+    input, select, textarea {
+      padding: 11px 12px;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid rgba(196, 106, 47, 0.22);
+      border-color: rgba(196, 106, 47, 0.45);
+    }
+
+    .radio-row,
+    .inline-actions,
+    .toggle-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(31, 42, 55, 0.12);
+      cursor: pointer;
+      user-select: none;
+      transition: 0.18s ease;
+    }
+
+    .chip input {
+      width: auto;
+      margin: 0;
+    }
+
+    .chip:hover {
+      transform: translateY(-1px);
+      border-color: rgba(196, 106, 47, 0.4);
+    }
+
+    .button {
+      appearance: none;
+      border: 0;
+      cursor: pointer;
+      padding: 11px 15px;
+      font-weight: 700;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button.primary {
+      color: #fff8f0;
+      background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    }
+
+    .button.secondary {
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .button.ghost {
+      background: rgba(43, 111, 119, 0.08);
+      color: var(--teal);
+    }
+
+    .button.small {
+      width: auto;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+
+    .note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .warning-box,
+    .assumption-box {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      font-size: 13px;
+    }
+
+    .warning-box {
+      background: rgba(176, 106, 29, 0.1);
+      color: #7e4d11;
+      border: 1px solid rgba(176, 106, 29, 0.22);
+    }
+
+    .assumption-box {
+      background: rgba(43, 111, 119, 0.08);
+      color: #28535a;
+      border: 1px solid rgba(43, 111, 119, 0.16);
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border-radius: 18px;
+      border: 1px solid rgba(31, 42, 55, 0.1);
+      background: rgba(255, 255, 255, 0.76);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1150px;
+    }
+
+    th, td {
+      padding: 10px 10px;
+      border-bottom: 1px solid rgba(31, 42, 55, 0.08);
+      vertical-align: middle;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:first-child, td:first-child,
+    th:nth-child(2), td:nth-child(2) {
+      text-align: left;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(253, 248, 240, 0.98);
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+    }
+
+    tbody tr:hover {
+      background: rgba(196, 106, 47, 0.04);
+    }
+
+    .row-input {
+      width: 128px;
+      min-width: 128px;
+      padding: 8px 10px;
+      text-align: right;
+    }
+
+    .row-name {
+      width: 180px;
+      min-width: 180px;
+      text-align: left;
+    }
+
+    .row-type {
+      width: 120px;
+      min-width: 120px;
+    }
+
+    .row-actions {
+      width: 80px;
+      min-width: 80px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .badge.business {
+      background: rgba(196, 106, 47, 0.12);
+      color: var(--accent-deep);
+    }
+
+    .badge.common {
+      background: rgba(43, 111, 119, 0.12);
+      color: var(--teal);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .summary-card {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(255, 255, 255, 0.82);
+    }
+
+    .summary-card strong {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .summary-card span {
+      display: block;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .summary-card em {
+      display: block;
+      margin-top: 8px;
+      font-style: normal;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .result-box {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.84);
+    }
+
+    .result-box h3 {
+      font-size: 15px;
+      margin-bottom: 10px;
+    }
+
+    .mini-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .mini-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .mini-row strong {
+      color: var(--ink);
+      font-size: 16px;
+    }
+
+    .bars {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr) 120px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .bar-label {
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .bar-track {
+      position: relative;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(31, 42, 55, 0.08);
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+    }
+
+    .bar-fill.teal {
+      background: linear-gradient(90deg, var(--teal), #73c2b7);
+    }
+
+    .bar-fill.rose {
+      background: linear-gradient(90deg, var(--rose), #dba2a8);
+    }
+
+    .bar-value {
+      text-align: right;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .footnote {
+      margin-top: 18px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .chart-panel {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(255, 255, 255, 0.84);
+    }
+
+    .chart-panel canvas {
+      width: 100%;
+      height: 320px;
+      display: block;
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .chart-caption {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 1040px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        width: min(100vw - 18px, 100%);
+        margin: 10px auto 26px;
+      }
+
+      .hero,
+      .panel {
+        padding: 16px;
+        border-radius: 20px;
+      }
+
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .bar-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>2027年9月期 事業計画シミュレーター</h1>
+      <p>
+        損益分岐点分析をもとに、今期実績の年換算値から全社目標営業利益または営業利益率を逆算し、
+        事業部別の必要売上高、売上総利益、営業利益、本部費配賦前後の予算案までを一画面で確認します。
+      </p>
+      <div class="hero-metrics" id="heroMetrics"></div>
+    </section>
+
+    <div class="grid">
+      <aside class="panel">
+        <h2>入力条件</h2>
+
+        <div class="section">
+          <h3>1. 全社条件</h3>
+          <div class="form-grid">
+            <div>
+              <label for="actualMonths">実績月数</label>
+              <input id="actualMonths" type="number" min="1" max="12" step="1" value="6" />
+            </div>
+            <div>
+              <label for="goalValue">全社目標値</label>
+              <input id="goalValue" type="number" step="0.1" value="5000" />
+            </div>
+          </div>
+          <div class="note">営業利益額の単位は任意です。万円でも千円でも、全行で統一してください。</div>
+          <div class="radio-row" style="margin-top: 12px;">
+            <label class="chip"><input type="radio" name="goalMode" value="amount" checked /> 目標営業利益額</label>
+            <label class="chip"><input type="radio" name="goalMode" value="margin" /> 目標営業利益率</label>
+          </div>
+          <div class="radio-row" style="margin-top: 12px;">
+            <label class="chip"><input type="radio" name="profitAllocationMode" value="contribution" checked /> 事業部利益配分: 限界利益シェア</label>
+            <label class="chip"><input type="radio" name="profitAllocationMode" value="sales" /> 事業部利益配分: 売上シェア</label>
+            <label class="chip"><input type="radio" name="profitAllocationMode" value="gross" /> 事業部利益配分: 粗利シェア</label>
+            <label class="chip"><input type="radio" name="profitAllocationMode" value="equal" /> 事業部利益配分: 均等</label>
+            <label class="chip"><input type="radio" name="profitAllocationMode" value="custom" /> 事業部利益配分: カスタム</label>
+          </div>
+          <div class="radio-row" style="margin-top: 12px;">
+            <label class="chip"><input type="radio" name="commonAllocationMode" value="none" checked /> 本部費配賦: しない</label>
+            <label class="chip"><input type="radio" name="commonAllocationMode" value="sales" /> 本部費配賦: 売上シェア</label>
+            <label class="chip"><input type="radio" name="commonAllocationMode" value="gross" /> 本部費配賦: 粗利シェア</label>
+            <label class="chip"><input type="radio" name="commonAllocationMode" value="contribution" /> 本部費配賦: 限界利益シェア</label>
+            <label class="chip"><input type="radio" name="commonAllocationMode" value="custom" /> 本部費配賦: カスタム</label>
+          </div>
+          <div class="assumption-box">
+            前提:
+            売上原価は100%変動費、販管費は入力時点で変動費と固定費に分解済み、
+            各事業部の変動費率と固定費水準は今期年換算値を来期の基準とみなします。
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>2. 事業部・共通部門</h3>
+          <div class="inline-actions">
+            <button class="button primary small" id="addBusinessButton" type="button">事業部を追加</button>
+            <button class="button ghost small" id="addCommonButton" type="button">共通部門を追加</button>
+            <button class="button secondary small" id="loadSampleButton" type="button">サンプル読込</button>
+          </div>
+          <div class="note">
+            共通部門は本部・管理部・情シスなどを想定しています。通常は売上と売上原価を0、販管費のみ入力します。
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>3. データ操作</h3>
+          <div class="inline-actions">
+            <button class="button secondary small" id="saveButton" type="button">このブラウザに保存</button>
+            <button class="button secondary small" id="exportButton" type="button">入力データをJSON保存</button>
+            <button class="button secondary small" id="exportCsvButton" type="button">入力データをCSV保存</button>
+            <button class="button secondary small" id="importButton" type="button">入力データをJSON読込</button>
+            <input id="fileInput" class="hidden" type="file" accept="application/json" />
+          </div>
+          <div class="note">再読込して続きから使うならJSON保存、Excelで確認するならCSV保存が便利です。</div>
+          <div class="note" id="saveStatus">まだファイル保存はしていません。</div>
+        </div>
+
+        <div class="section">
+          <h3>4. シミュレーションの読み方</h3>
+          <div class="mini-list">
+            <div class="mini-row"><span>必要売上高</span><strong>目標営業利益を逆算した来期必要水準</strong></div>
+            <div class="mini-row"><span>営業利益(配賦前)</span><strong>事業部の稼ぐ力として必要な利益</strong></div>
+            <div class="mini-row"><span>営業利益(配賦後)</span><strong>本部費を配賦した後の責任利益</strong></div>
+            <div class="mini-row"><span>本部費配賦額</span><strong>共通部門赤字を各事業部へ按分した金額</strong></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="panel">
+        <h2>事業部入力と結果</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>区分</th>
+                <th>名称</th>
+                <th>売上</th>
+                <th>売上原価</th>
+                <th>販管費(変動)</th>
+                <th>販管費(固定)</th>
+                <th>カスタム配分ウェイト</th>
+                <th>削除</th>
+              </tr>
+            </thead>
+            <tbody id="departmentTableBody"></tbody>
+          </table>
+        </div>
+
+        <div id="warningBox" class="warning-box hidden"></div>
+
+        <div class="summary-grid" id="summaryGrid"></div>
+
+        <div class="results-grid">
+          <section class="result-box">
+            <h3>全社シミュレーション結果</h3>
+            <div class="mini-list" id="companyResultList"></div>
+          </section>
+          <section class="result-box">
+            <h3>配分ロジック</h3>
+            <div class="mini-list" id="allocationResultList"></div>
+          </section>
+        </div>
+
+        <div class="section">
+          <h3>事業部別の必要予算</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>現状売上(年換算)</th>
+                  <th>必要売上高</th>
+                  <th>必要売上原価</th>
+                  <th>必要売上総利益</th>
+                  <th>必要販管費(変動)</th>
+                  <th>必要販管費(固定)</th>
+                  <th>必要販管費(合計)</th>
+                  <th>事業部直接営業利益</th>
+                  <th>事業部直接営業利益率</th>
+                  <th>本部費配賦額</th>
+                  <th>本部費配賦後営業利益</th>
+                  <th>本部費配賦後営業利益率</th>
+                  <th>限界利益率</th>
+                  <th>損益分岐点売上高</th>
+                  <th>売上ギャップ</th>
+                </tr>
+              </thead>
+              <tbody id="resultTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>見え方の比較</h3>
+          <div class="bars">
+            <div class="bar-row">
+              <div class="bar-label">必要売上高の構成比</div>
+              <div class="bar-track"><div class="bar-fill" id="salesMixBar"></div></div>
+              <div class="bar-value" id="salesMixLabel"></div>
+            </div>
+            <div id="salesBars"></div>
+          </div>
+          <div class="bars">
+            <div class="bar-row">
+              <div class="bar-label">事業部直接営業利益の構成比</div>
+              <div class="bar-track"><div class="bar-fill teal" id="profitMixBar"></div></div>
+              <div class="bar-value" id="profitMixLabel"></div>
+            </div>
+            <div id="profitBars"></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>グラフ</h3>
+          <div class="chart-grid">
+            <section class="chart-panel">
+              <h3>事業部別 売上比較</h3>
+              <canvas id="salesComparisonCanvas" width="640" height="320"></canvas>
+              <div class="chart-caption">薄いバーが現状売上、濃いバーが目標達成に必要な売上です。</div>
+            </section>
+            <section class="chart-panel">
+              <h3>事業部別 必要売上の内訳</h3>
+              <canvas id="costStructureCanvas" width="640" height="320"></canvas>
+              <div class="chart-caption">必要売上高を、売上原価・販管費・営業利益に分解して表示します。</div>
+            </section>
+          </div>
+
+          <div class="chart-grid">
+            <section class="chart-panel">
+              <div class="inline-actions" style="justify-content: space-between; align-items: center;">
+                <h3>損益分岐点グラフ</h3>
+                <div style="min-width: 220px;">
+                  <label for="breakEvenTarget">表示対象</label>
+                  <select id="breakEvenTarget"></select>
+                </div>
+              </div>
+              <canvas id="breakEvenCanvas" width="960" height="360"></canvas>
+              <div class="chart-caption">売上高線、総費用線、固定費線、損益分岐点を一つのグラフで確認できます。</div>
+            </section>
+          </div>
+        </div>
+
+        <div class="footnote">
+          このシミュレーターは「今期実績の年換算値」を基準に、変動費率と固定費構造を据え置いて逆算しています。
+          実際の事業計画では、広告投資、人員増、値上げ、商品構成変化などで変動費率・固定費の見直しが必要です。
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "business-plan-simulator-state-v1";
+
+    const state = {
+      actualMonths: 6,
+      goalMode: "amount",
+      goalValue: 5000,
+      profitAllocationMode: "contribution",
+      commonAllocationMode: "none",
+      rows: []
+    };
+
+    const sampleState = {
+      actualMonths: 6,
+      goalMode: "amount",
+      goalValue: 8000,
+      profitAllocationMode: "contribution",
+      commonAllocationMode: "sales",
+      rows: [
+        { id: crypto.randomUUID(), type: "business", name: "広告事業", sales: 24000, cogs: 9600, variableSga: 3600, fixedSga: 4200, customWeight: 4 },
+        { id: crypto.randomUUID(), type: "business", name: "SaaS事業", sales: 18000, cogs: 2700, variableSga: 1800, fixedSga: 5200, customWeight: 5 },
+        { id: crypto.randomUUID(), type: "business", name: "受託開発事業", sales: 15000, cogs: 8400, variableSga: 1200, fixedSga: 2600, customWeight: 2 },
+        { id: crypto.randomUUID(), type: "common", name: "本部", sales: 0, cogs: 0, variableSga: 0, fixedSga: 4800, customWeight: 1 }
+      ]
+    };
+
+    const bodyEl = document.getElementById("departmentTableBody");
+    const actualMonthsEl = document.getElementById("actualMonths");
+    const goalValueEl = document.getElementById("goalValue");
+    const warningBoxEl = document.getElementById("warningBox");
+    const fileInputEl = document.getElementById("fileInput");
+    const saveStatusEl = document.getElementById("saveStatus");
+    const breakEvenTargetEl = document.getElementById("breakEvenTarget");
+
+    function currency(value) {
+      if (!Number.isFinite(value)) return "—";
+      return new Intl.NumberFormat("ja-JP", {
+        maximumFractionDigits: 1,
+        minimumFractionDigits: Math.abs(value) >= 1000 ? 0 : 1
+      }).format(value);
+    }
+
+    function percent(value) {
+      if (!Number.isFinite(value)) return "—";
+      return `${(value * 100).toFixed(1)}%`;
+    }
+
+    function numberOrZero(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function createRow(type) {
+      return {
+        id: crypto.randomUUID(),
+        type,
+        name: type === "common" ? "共通部門" : "新規事業部",
+        sales: 0,
+        cogs: 0,
+        variableSga: 0,
+        fixedSga: 0,
+        customWeight: 1
+      };
+    }
+
+    function loadState(nextState) {
+      state.actualMonths = nextState.actualMonths ?? 6;
+      state.goalMode = nextState.goalMode ?? "amount";
+      state.goalValue = nextState.goalValue ?? 5000;
+      state.profitAllocationMode = nextState.profitAllocationMode ?? "contribution";
+      state.commonAllocationMode = nextState.commonAllocationMode ?? "none";
+      state.rows = Array.isArray(nextState.rows) ? nextState.rows.map((row) => ({
+        id: row.id || crypto.randomUUID(),
+        type: row.type === "common" ? "common" : "business",
+        name: row.name || "",
+        sales: numberOrZero(row.sales),
+        cogs: numberOrZero(row.cogs),
+        variableSga: numberOrZero(row.variableSga),
+        fixedSga: numberOrZero(row.fixedSga),
+        customWeight: numberOrZero(row.customWeight) || 1
+      })) : [];
+
+      if (state.rows.length === 0) {
+        state.rows = [createRow("business"), createRow("common")];
+      }
+
+      actualMonthsEl.value = state.actualMonths;
+      goalValueEl.value = state.goalValue;
+      document.querySelector(`input[name="goalMode"][value="${state.goalMode}"]`).checked = true;
+      document.querySelector(`input[name="profitAllocationMode"][value="${state.profitAllocationMode}"]`).checked = true;
+      document.querySelector(`input[name="commonAllocationMode"][value="${state.commonAllocationMode}"]`).checked = true;
+
+      renderRows();
+      renderAll();
+    }
+
+    function saveLocalState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      saveStatusEl.textContent = "このブラウザへの保存を更新しました。";
+    }
+
+    function updateStateFromTopInputs() {
+      state.actualMonths = Math.min(12, Math.max(1, Math.round(numberOrZero(actualMonthsEl.value) || 1)));
+      state.goalValue = numberOrZero(goalValueEl.value);
+      state.goalMode = document.querySelector('input[name="goalMode"]:checked').value;
+      state.profitAllocationMode = document.querySelector('input[name="profitAllocationMode"]:checked').value;
+      state.commonAllocationMode = document.querySelector('input[name="commonAllocationMode"]:checked').value;
+    }
+
+    function renderRows() {
+      bodyEl.innerHTML = "";
+      state.rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>
+            <span class="badge ${row.type}">${row.type === "common" ? "共通部門" : "事業部"}</span>
+          </td>
+          <td>
+            <input class="row-input row-name" type="text" value="${escapeHtml(row.name)}" data-field="name" data-id="${row.id}" />
+          </td>
+          <td><input class="row-input" type="number" step="0.1" value="${row.sales}" data-field="sales" data-id="${row.id}" /></td>
+          <td><input class="row-input" type="number" step="0.1" value="${row.cogs}" data-field="cogs" data-id="${row.id}" /></td>
+          <td><input class="row-input" type="number" step="0.1" value="${row.variableSga}" data-field="variableSga" data-id="${row.id}" /></td>
+          <td><input class="row-input" type="number" step="0.1" value="${row.fixedSga}" data-field="fixedSga" data-id="${row.id}" /></td>
+          <td><input class="row-input" type="number" step="0.1" value="${row.customWeight}" data-field="customWeight" data-id="${row.id}" /></td>
+          <td class="row-actions"><button class="button secondary small" type="button" data-remove-id="${row.id}">削除</button></td>
+        `;
+        bodyEl.appendChild(tr);
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function readRowsFromDom() {
+      document.querySelectorAll("#departmentTableBody [data-id]").forEach((input) => {
+        const row = state.rows.find((item) => item.id === input.dataset.id);
+        if (!row) return;
+        const field = input.dataset.field;
+        row[field] = field === "name" ? input.value : numberOrZero(input.value);
+      });
+    }
+
+    function annualizedRows() {
+      const factor = 12 / state.actualMonths;
+      return state.rows.map((row) => {
+        const sales = row.sales * factor;
+        const cogs = row.cogs * factor;
+        const variableSga = row.variableSga * factor;
+        const fixedSga = row.fixedSga * factor;
+        const grossProfit = sales - cogs;
+        const contribution = grossProfit - variableSga;
+        const opProfit = contribution - fixedSga;
+        const cogsRatio = sales > 0 ? cogs / sales : 0;
+        const variableSgaRatio = sales > 0 ? variableSga / sales : 0;
+        const contributionMarginRatio = sales > 0 ? contribution / sales : 0;
+        return {
+          ...row,
+          annualFactor: factor,
+          annualSales: sales,
+          annualCogs: cogs,
+          annualVariableSga: variableSga,
+          annualFixedSga: fixedSga,
+          grossProfit,
+          contribution,
+          opProfit,
+          cogsRatio,
+          variableSgaRatio,
+          contributionMarginRatio
+        };
+      });
+    }
+
+    function sum(list, pick) {
+      return list.reduce((total, item) => total + pick(item), 0);
+    }
+
+    function normalizedWeights(rows, mode, metricGetter) {
+      if (rows.length === 0) return [];
+
+      if (mode === "equal") {
+        return rows.map(() => 1 / rows.length);
+      }
+
+      const raw = rows.map((row) => {
+        if (mode === "custom") return Math.max(0, numberOrZero(row.customWeight));
+        return Math.max(0, metricGetter(row));
+      });
+      const total = raw.reduce((acc, value) => acc + value, 0);
+      if (total <= 0) {
+        return rows.map(() => 1 / rows.length);
+      }
+      return raw.map((value) => value / total);
+    }
+
+    function getMetric(row, mode) {
+      switch (mode) {
+        case "sales":
+          return row.annualSales;
+        case "gross":
+          return row.grossProfit;
+        case "contribution":
+          return row.contribution;
+        default:
+          return row.contribution;
+      }
+    }
+
+    function computeScenario() {
+      const rows = annualizedRows();
+      const businessRows = rows.filter((row) => row.type === "business");
+      const commonRows = rows.filter((row) => row.type === "common");
+
+      const warnings = [];
+
+      if (businessRows.length === 0) {
+        warnings.push("少なくとも1つの事業部が必要です。");
+      }
+
+      const invalidCmRows = businessRows.filter((row) => row.contributionMarginRatio <= 0);
+      if (invalidCmRows.length > 0) {
+        warnings.push(`限界利益率が0%以下の事業部があります: ${invalidCmRows.map((row) => row.name || "名称未設定").join("、")}`);
+      }
+
+      const commonOpCurrent = sum(commonRows, (row) => row.opProfit);
+      const commonSalesCurrent = sum(commonRows, (row) => row.annualSales);
+      const profitWeights = normalizedWeights(
+        businessRows,
+        state.profitAllocationMode,
+        (row) => getMetric(row, state.profitAllocationMode)
+      );
+      const commonWeights = normalizedWeights(
+        businessRows,
+        state.commonAllocationMode,
+        (row) => getMetric(row, state.commonAllocationMode)
+      );
+
+      let targetCompanyOp = state.goalValue;
+      const salesBaseConstant = businessRows.reduce(
+        (total, row) => total + (row.contributionMarginRatio > 0 ? row.annualFixedSga / row.contributionMarginRatio : 0),
+        0
+      );
+      const profitSlope = businessRows.reduce(
+        (total, row, index) => total + (row.contributionMarginRatio > 0 ? profitWeights[index] / row.contributionMarginRatio : 0),
+        0
+      );
+
+      if (state.goalMode === "margin") {
+        const targetMargin = state.goalValue / 100;
+        const denominator = 1 - targetMargin * profitSlope;
+        const numerator = targetMargin * (commonSalesCurrent + salesBaseConstant - profitSlope * commonOpCurrent);
+        if (denominator <= 0) {
+          warnings.push("指定した目標営業利益率では解が成立しません。限界利益率や配分方法を見直してください。");
+        } else {
+          targetCompanyOp = numerator / denominator;
+        }
+      }
+
+      const businessProfitPool = targetCompanyOp - commonOpCurrent;
+      const targetRows = businessRows.map((row, index) => {
+        const targetOpBeforeAllocation = businessProfitPool * (profitWeights[index] ?? 0);
+        const requiredSales = row.contributionMarginRatio > 0
+          ? (row.annualFixedSga + targetOpBeforeAllocation) / row.contributionMarginRatio
+          : NaN;
+        const requiredCogs = requiredSales * row.cogsRatio;
+        const requiredGrossProfit = requiredSales - requiredCogs;
+        const requiredVariableSga = requiredSales * row.variableSgaRatio;
+        const requiredTotalSga = requiredVariableSga + row.annualFixedSga;
+        const breakEvenSales = row.contributionMarginRatio > 0
+          ? row.annualFixedSga / row.contributionMarginRatio
+          : NaN;
+        return {
+          ...row,
+          weightForProfit: profitWeights[index] ?? 0,
+          weightForCommon: commonWeights[index] ?? 0,
+          targetOpBeforeAllocation,
+          requiredSales,
+          requiredCogs,
+          requiredGrossProfit,
+          requiredVariableSga,
+          requiredTotalSga,
+          breakEvenSales
+        };
+      });
+
+      const totalCommonBurden = state.commonAllocationMode === "none" ? 0 : -commonOpCurrent;
+      const rowsWithAllocation = targetRows.map((row) => {
+        const commonAllocation = totalCommonBurden * row.weightForCommon;
+        return {
+          ...row,
+          commonAllocation,
+          targetOpAfterAllocation: row.targetOpBeforeAllocation - commonAllocation,
+          directOpMargin: row.requiredSales > 0 ? row.targetOpBeforeAllocation / row.requiredSales : NaN,
+          allocatedOpMargin: row.requiredSales > 0 ? (row.targetOpBeforeAllocation - commonAllocation) / row.requiredSales : NaN,
+          salesGap: row.requiredSales - row.annualSales
+        };
+      });
+
+      const targetBusinessSales = sum(rowsWithAllocation, (row) => row.requiredSales);
+      const targetBusinessCogs = sum(rowsWithAllocation, (row) => row.requiredCogs);
+      const targetBusinessGrossProfit = sum(rowsWithAllocation, (row) => row.requiredGrossProfit);
+      const targetBusinessVariableSga = sum(rowsWithAllocation, (row) => row.requiredVariableSga);
+      const targetBusinessFixedSga = sum(rowsWithAllocation, (row) => row.annualFixedSga);
+      const targetBusinessOpBefore = sum(rowsWithAllocation, (row) => row.targetOpBeforeAllocation);
+      const targetBusinessOpAfter = sum(rowsWithAllocation, (row) => row.targetOpAfterAllocation);
+      const currentSales = sum(rows, (row) => row.annualSales);
+      const currentCogs = sum(rows, (row) => row.annualCogs);
+      const currentGross = sum(rows, (row) => row.grossProfit);
+      const currentVariableSga = sum(rows, (row) => row.annualVariableSga);
+      const currentContribution = sum(rows, (row) => row.contribution);
+      const currentFixed = sum(rows, (row) => row.annualFixedSga);
+      const currentOp = sum(rows, (row) => row.opProfit);
+      const targetCompanySales = targetBusinessSales + commonSalesCurrent;
+      const targetCompanyGross = targetBusinessGrossProfit + sum(commonRows, (row) => row.grossProfit);
+      const targetCompanyCogs = targetBusinessCogs + sum(commonRows, (row) => row.annualCogs);
+      const targetCompanyVariableSga = targetBusinessVariableSga + sum(commonRows, (row) => row.annualVariableSga);
+      const targetCompanyFixedSga = targetBusinessFixedSga + sum(commonRows, (row) => row.annualFixedSga);
+      const achievedMargin = targetCompanySales > 0 ? targetCompanyOp / targetCompanySales : 0;
+      const directBusinessMargin = targetCompanySales > 0 ? targetBusinessOpBefore / targetCompanySales : 0;
+
+      const companyBusinessSales = sum(businessRows, (row) => row.annualSales);
+      const companyBusinessVariableCost = sum(businessRows, (row) => row.annualCogs + row.annualVariableSga);
+      const companyBusinessFixedCost = sum(businessRows, (row) => row.annualFixedSga) + sum(commonRows, (row) => row.annualFixedSga);
+      const companyBusinessVariableRatio = companyBusinessSales > 0 ? companyBusinessVariableCost / companyBusinessSales : 0;
+      const companyBusinessContributionRatio = 1 - companyBusinessVariableRatio;
+      const companyBreakEvenSales = companyBusinessContributionRatio > 0
+        ? companyBusinessFixedCost / companyBusinessContributionRatio
+        : NaN;
+
+      return {
+        warnings,
+        rows,
+        businessRows,
+        commonRows,
+        rowsWithAllocation,
+        current: {
+          sales: currentSales,
+          cogs: currentCogs,
+          grossProfit: currentGross,
+          variableSga: currentVariableSga,
+          contribution: currentContribution,
+          fixedCost: currentFixed,
+          opProfit: currentOp,
+          opMargin: currentSales > 0 ? currentOp / currentSales : 0
+        },
+        target: {
+          companySales: targetCompanySales,
+          companyCogs: targetCompanyCogs,
+          companyGrossProfit: targetCompanyGross,
+          companyVariableSga: targetCompanyVariableSga,
+          companyFixedSga: targetCompanyFixedSga,
+          companyOpProfit: targetCompanyOp,
+          companyOpMargin: achievedMargin,
+          companyDirectOpMargin: directBusinessMargin,
+          businessProfitPool,
+          businessSales: targetBusinessSales,
+          businessCogs: targetBusinessCogs,
+          businessGrossProfit: targetBusinessGrossProfit,
+          businessVariableSga: targetBusinessVariableSga,
+          businessFixedSga: targetBusinessFixedSga,
+          businessOpBefore: targetBusinessOpBefore,
+          businessOpAfter: targetBusinessOpAfter,
+          salesGap: targetCompanySales - currentSales,
+          commonBurden: totalCommonBurden,
+          commonOpCurrent
+        },
+        assumptions: {
+          salesBaseConstant,
+          profitSlope
+        },
+        breakEvenModels: {
+          company: {
+            key: "company",
+            label: "全社(事業部合算 + 共通費)",
+            variableCostRatio: companyBusinessVariableRatio,
+            fixedCost: companyBusinessFixedCost,
+            breakEvenSales: companyBreakEvenSales,
+            currentSales: companyBusinessSales,
+            requiredSales: targetBusinessSales
+          },
+          businesses: rowsWithAllocation.map((row) => ({
+            key: row.id,
+            label: row.name || "名称未設定",
+            variableCostRatio: row.cogsRatio + row.variableSgaRatio,
+            fixedCost: row.annualFixedSga,
+            breakEvenSales: row.breakEvenSales,
+            currentSales: row.annualSales,
+            requiredSales: row.requiredSales
+          }))
+        }
+      };
+    }
+
+    function setWarnings(warnings) {
+      if (warnings.length === 0) {
+        warningBoxEl.classList.add("hidden");
+        warningBoxEl.innerHTML = "";
+        return;
+      }
+      warningBoxEl.classList.remove("hidden");
+      warningBoxEl.innerHTML = warnings.map((item) => `<div>${escapeHtml(item)}</div>`).join("");
+    }
+
+    function renderHeroMetrics(result) {
+      const items = [
+        { label: "今期年換算 売上高", value: currency(result.current.sales) },
+        { label: "今期年換算 営業利益", value: currency(result.current.opProfit) },
+        { label: "目標 営業利益", value: currency(result.target.companyOpProfit) },
+        { label: "目標 営業利益率", value: percent(result.target.companyOpMargin) }
+      ];
+      document.getElementById("heroMetrics").innerHTML = items.map((item) => `
+        <div class="metric">
+          <div class="metric-label">${escapeHtml(item.label)}</div>
+          <div class="metric-value">${escapeHtml(item.value)}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderSummary(result) {
+      const cards = [
+        {
+          title: "全社必要売上高",
+          value: currency(result.target.companySales),
+          note: `今期年換算比 ${percent(result.current.sales ? result.target.salesGap / result.current.sales : 0)}`
+        },
+        {
+          title: "全社必要売上総利益",
+          value: currency(result.target.companyGrossProfit),
+          note: `今期年換算比 ${percent(result.current.grossProfit ? (result.target.companyGrossProfit - result.current.grossProfit) / result.current.grossProfit : 0)}`
+        },
+        {
+          title: "事業部直接営業利益合計",
+          value: currency(result.target.businessProfitPool),
+          note: `利益率 ${percent(result.target.companyDirectOpMargin)}`
+        },
+        {
+          title: "本部費配賦後営業利益合計",
+          value: currency(result.target.companyOpProfit),
+          note: `利益率 ${percent(result.target.companyOpMargin)}`
+        }
+      ];
+
+      document.getElementById("summaryGrid").innerHTML = cards.map((card) => `
+        <div class="summary-card">
+          <strong>${escapeHtml(card.title)}</strong>
+          <span>${escapeHtml(card.value)}</span>
+          <em>${escapeHtml(card.note)}</em>
+        </div>
+      `).join("");
+    }
+
+    function renderCompanyResult(result) {
+      const rows = [
+        ["今期年換算 売上高", currency(result.current.sales)],
+        ["目標 売上高", currency(result.target.companySales)],
+        ["目標 売上原価", currency(result.target.companyCogs)],
+        ["目標 販管費(変動)", currency(result.target.companyVariableSga)],
+        ["目標 販管費(固定)", currency(result.target.companyFixedSga)],
+        ["事業部直接営業利益合計", currency(result.target.businessOpBefore)],
+        ["事業部直接営業利益率", percent(result.target.companyDirectOpMargin)],
+        ["本部費配賦後営業利益合計", currency(result.target.companyOpProfit)],
+        ["本部費配賦後営業利益率", percent(result.target.companyOpMargin)],
+        ["売上ギャップ", currency(result.target.salesGap)],
+        ["今期年換算 営業利益", currency(result.current.opProfit)],
+        ["目標 営業利益", currency(result.target.companyOpProfit)],
+        ["目標 営業利益率", percent(result.target.companyOpMargin)]
+      ];
+      document.getElementById("companyResultList").innerHTML = rows.map(([label, value]) => `
+        <div class="mini-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+      `).join("");
+    }
+
+    function allocationLabel(mode) {
+      switch (mode) {
+        case "sales":
+          return "売上シェア";
+        case "gross":
+          return "粗利シェア";
+        case "equal":
+          return "均等";
+        case "custom":
+          return "カスタムウェイト";
+        case "none":
+          return "配賦しない";
+        default:
+          return "限界利益シェア";
+      }
+    }
+
+    function renderAllocationResult(result) {
+      const rows = [
+        ["事業部利益配分", allocationLabel(state.profitAllocationMode)],
+        ["本部費配賦", allocationLabel(state.commonAllocationMode)],
+        ["共通部門負担総額", currency(result.target.commonBurden)],
+        ["事業部直接営業利益合計", currency(result.target.businessOpBefore)],
+        ["本部費配賦後営業利益合計", currency(result.target.businessOpAfter)],
+        ["解法係数", `${result.assumptions.profitSlope.toFixed(3)} 倍`]
+      ];
+      document.getElementById("allocationResultList").innerHTML = rows.map(([label, value]) => `
+        <div class="mini-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+      `).join("");
+    }
+
+    function renderResultTable(result) {
+      const body = document.getElementById("resultTableBody");
+      body.innerHTML = result.rowsWithAllocation.map((row) => `
+        <tr>
+          <td>${escapeHtml(row.name || "名称未設定")}</td>
+          <td>${currency(row.annualSales)}</td>
+          <td>${currency(row.requiredSales)}</td>
+          <td>${currency(row.requiredCogs)}</td>
+          <td>${currency(row.requiredGrossProfit)}</td>
+          <td>${currency(row.requiredVariableSga)}</td>
+          <td>${currency(row.annualFixedSga)}</td>
+          <td>${currency(row.requiredTotalSga)}</td>
+          <td>${currency(row.targetOpBeforeAllocation)}</td>
+          <td>${percent(row.directOpMargin)}</td>
+          <td>${currency(row.commonAllocation)}</td>
+          <td>${currency(row.targetOpAfterAllocation)}</td>
+          <td>${percent(row.allocatedOpMargin)}</td>
+          <td>${percent(row.contributionMarginRatio)}</td>
+          <td>${currency(row.breakEvenSales)}</td>
+          <td>${currency(row.salesGap)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderBars(result) {
+      const salesBarsEl = document.getElementById("salesBars");
+      const profitBarsEl = document.getElementById("profitBars");
+      const totalSales = Math.max(0, result.target.businessSales);
+      const totalProfit = Math.max(0, result.target.businessOpBefore);
+
+      salesBarsEl.innerHTML = result.rowsWithAllocation.map((row) => {
+        const width = totalSales > 0 ? (row.requiredSales / totalSales) * 100 : 0;
+        return `
+          <div class="bar-row">
+            <div class="bar-label">${escapeHtml(row.name)}</div>
+            <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+            <div class="bar-value">${percent(width / 100)}</div>
+          </div>
+        `;
+      }).join("");
+
+      profitBarsEl.innerHTML = result.rowsWithAllocation.map((row) => {
+        const width = totalProfit > 0 ? (row.targetOpBeforeAllocation / totalProfit) * 100 : 0;
+        return `
+          <div class="bar-row">
+            <div class="bar-label">${escapeHtml(row.name)}</div>
+            <div class="bar-track"><div class="bar-fill teal" style="width:${width}%"></div></div>
+            <div class="bar-value">${percent(width / 100)}</div>
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("salesMixBar").style.width = "100%";
+      document.getElementById("salesMixLabel").textContent = `${result.rowsWithAllocation.length}事業部`;
+      document.getElementById("profitMixBar").style.width = "100%";
+      document.getElementById("profitMixLabel").textContent = `${allocationLabel(state.profitAllocationMode)}で配分`;
+    }
+
+    function setupCanvas(canvas) {
+      const ctx = canvas.getContext("2d");
+      const ratio = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(320, Math.floor(rect.width || canvas.width));
+      const height = Math.max(240, Math.floor(canvas.height / ratio || 320));
+      canvas.width = width * ratio;
+      canvas.height = height * ratio;
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      return { ctx, width, height };
+    }
+
+    function drawAxes(ctx, width, height, padding, yTicks) {
+      ctx.strokeStyle = "rgba(31, 42, 55, 0.18)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, padding.top);
+      ctx.lineTo(padding.left, height - padding.bottom);
+      ctx.lineTo(width - padding.right, height - padding.bottom);
+      ctx.stroke();
+
+      ctx.fillStyle = "#5d6b7a";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+
+      yTicks.forEach((tick) => {
+        const y = height - padding.bottom - tick.rate * (height - padding.top - padding.bottom);
+        ctx.strokeStyle = "rgba(31, 42, 55, 0.08)";
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+        ctx.fillText(currency(tick.value), padding.left - 8, y);
+      });
+    }
+
+    function renderSalesComparisonChart(result) {
+      const canvas = document.getElementById("salesComparisonCanvas");
+      const { ctx, width, height } = setupCanvas(canvas);
+      const rows = result.rowsWithAllocation;
+      const padding = { top: 18, right: 18, bottom: 60, left: 72 };
+      const maxValue = Math.max(...rows.flatMap((row) => [row.annualSales, row.requiredSales]), 1);
+      const yTicks = Array.from({ length: 5 }, (_, index) => {
+        const rate = index / 4;
+        return { rate, value: maxValue * rate };
+      });
+      drawAxes(ctx, width, height, padding, yTicks);
+
+      const chartWidth = width - padding.left - padding.right;
+      const baseY = height - padding.bottom;
+      const groupWidth = chartWidth / Math.max(rows.length, 1);
+
+      rows.forEach((row, index) => {
+        const groupX = padding.left + index * groupWidth;
+        const barWidth = Math.min(28, groupWidth * 0.28);
+        const currentHeight = (row.annualSales / maxValue) * (height - padding.top - padding.bottom);
+        const targetHeight = (row.requiredSales / maxValue) * (height - padding.top - padding.bottom);
+
+        ctx.fillStyle = "rgba(196, 106, 47, 0.32)";
+        ctx.fillRect(groupX + groupWidth * 0.18, baseY - currentHeight, barWidth, currentHeight);
+        ctx.fillStyle = "#c46a2f";
+        ctx.fillRect(groupX + groupWidth * 0.52, baseY - targetHeight, barWidth, targetHeight);
+
+        ctx.fillStyle = "#1f2a37";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillText(row.name.length > 8 ? `${row.name.slice(0, 8)}…` : row.name, groupX + groupWidth / 2, baseY + 10);
+      });
+    }
+
+    function renderCostStructureChart(result) {
+      const canvas = document.getElementById("costStructureCanvas");
+      const { ctx, width, height } = setupCanvas(canvas);
+      const rows = result.rowsWithAllocation;
+      const padding = { top: 18, right: 18, bottom: 60, left: 72 };
+      const maxValue = Math.max(...rows.map((row) => row.requiredSales), 1);
+      const yTicks = Array.from({ length: 5 }, (_, index) => {
+        const rate = index / 4;
+        return { rate, value: maxValue * rate };
+      });
+      drawAxes(ctx, width, height, padding, yTicks);
+
+      const chartWidth = width - padding.left - padding.right;
+      const baseY = height - padding.bottom;
+      const groupWidth = chartWidth / Math.max(rows.length, 1);
+      const barWidth = Math.min(50, groupWidth * 0.5);
+
+      rows.forEach((row, index) => {
+        const x = padding.left + index * groupWidth + (groupWidth - barWidth) / 2;
+        const parts = [
+          { value: row.requiredCogs, color: "#d3a36d" },
+          { value: row.requiredVariableSga, color: "#73c2b7" },
+          { value: row.annualFixedSga, color: "#6f8fa6" },
+          { value: row.targetOpBeforeAllocation, color: "#c46a2f" }
+        ];
+        let stackedHeight = 0;
+        parts.forEach((part) => {
+          const partHeight = (part.value / maxValue) * (height - padding.top - padding.bottom);
+          ctx.fillStyle = part.color;
+          ctx.fillRect(x, baseY - stackedHeight - partHeight, barWidth, partHeight);
+          stackedHeight += partHeight;
+        });
+
+        ctx.fillStyle = "#1f2a37";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillText(row.name.length > 8 ? `${row.name.slice(0, 8)}…` : row.name, x + barWidth / 2, baseY + 10);
+      });
+    }
+
+    function renderBreakEvenSelector(result) {
+      const options = [
+        result.breakEvenModels.company,
+        ...result.breakEvenModels.businesses
+      ];
+      const currentValue = breakEvenTargetEl.value || "company";
+      breakEvenTargetEl.innerHTML = options.map((item) => `
+        <option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>
+      `).join("");
+      if (options.some((item) => item.key === currentValue)) {
+        breakEvenTargetEl.value = currentValue;
+      }
+    }
+
+    function renderBreakEvenChart(result) {
+      renderBreakEvenSelector(result);
+      const key = breakEvenTargetEl.value || "company";
+      const model = key === "company"
+        ? result.breakEvenModels.company
+        : result.breakEvenModels.businesses.find((item) => item.key === key) || result.breakEvenModels.company;
+
+      const canvas = document.getElementById("breakEvenCanvas");
+      const { ctx, width, height } = setupCanvas(canvas);
+      const padding = { top: 24, right: 24, bottom: 56, left: 76 };
+
+      const maxSales = Math.max(model.currentSales, model.requiredSales, model.breakEvenSales, 1) * 1.25;
+      const maxCost = Math.max(
+        maxSales,
+        model.fixedCost + model.variableCostRatio * maxSales,
+        model.fixedCost,
+        1
+      ) * 1.05;
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const x = (value) => padding.left + (value / maxSales) * plotWidth;
+      const y = (value) => height - padding.bottom - (value / maxCost) * plotHeight;
+      const ticks = Array.from({ length: 5 }, (_, index) => {
+        const rate = index / 4;
+        return { rate, value: maxCost * rate };
+      });
+      drawAxes(ctx, width, height, padding, ticks);
+
+      ctx.fillStyle = "#5d6b7a";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      for (let i = 0; i <= 4; i += 1) {
+        const value = (maxSales / 4) * i;
+        const px = x(value);
+        ctx.fillText(currency(value), px, height - padding.bottom + 18);
+      }
+
+      const drawLine = (points, color, dash = []) => {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point[0], point[1]);
+          else ctx.lineTo(point[0], point[1]);
+        });
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      drawLine([[x(0), y(0)], [x(maxSales), y(maxSales)]], "#c46a2f");
+      drawLine([[x(0), y(model.fixedCost)], [x(maxSales), y(model.fixedCost + model.variableCostRatio * maxSales)]], "#2b6f77");
+      drawLine([[x(0), y(model.fixedCost)], [x(maxSales), y(model.fixedCost)]], "#6f8fa6", [6, 4]);
+
+      if (Number.isFinite(model.breakEvenSales)) {
+        const bepX = x(model.breakEvenSales);
+        const bepY = y(model.breakEvenSales);
+        drawLine([[bepX, y(0)], [bepX, bepY]], "#b4545f", [4, 4]);
+        drawLine([[x(0), bepY], [bepX, bepY]], "#b4545f", [4, 4]);
+        ctx.fillStyle = "#b4545f";
+        ctx.beginPath();
+        ctx.arc(bepX, bepY, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillText(`損益分岐点 ${currency(model.breakEvenSales)}`, Math.min(width - 90, bepX + 60), Math.max(18, bepY - 16));
+      }
+
+      ctx.fillStyle = "#1f2a37";
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("売上高線", padding.left + 8, padding.top + 12);
+      ctx.fillText("総費用線", padding.left + 88, padding.top + 12);
+      ctx.fillText("固定費線", padding.left + 168, padding.top + 12);
+      ctx.fillText(model.label, padding.left + 248, padding.top + 12);
+      ctx.fillStyle = "#c46a2f";
+      ctx.fillRect(padding.left - 8, padding.top + 4, 10, 3);
+      ctx.fillStyle = "#2b6f77";
+      ctx.fillRect(padding.left + 72, padding.top + 4, 10, 3);
+      ctx.fillStyle = "#6f8fa6";
+      ctx.fillRect(padding.left + 152, padding.top + 4, 10, 3);
+    }
+
+    function renderAll() {
+      updateStateFromTopInputs();
+      readRowsFromDom();
+      const result = computeScenario();
+      setWarnings(result.warnings);
+      renderHeroMetrics(result);
+      renderSummary(result);
+      renderCompanyResult(result);
+      renderAllocationResult(result);
+      renderResultTable(result);
+      renderBars(result);
+      renderSalesComparisonChart(result);
+      renderCostStructureChart(result);
+      renderBreakEvenChart(result);
+    }
+
+    function addRow(type) {
+      state.rows.push(createRow(type));
+      renderRows();
+      renderAll();
+    }
+
+    function downloadJson() {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "business-plan-simulator.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      saveStatusEl.textContent = "入力データをJSONファイルとして保存しました。";
+    }
+
+    function csvCell(value) {
+      const text = String(value ?? "");
+      if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+        return `"${text.replaceAll('"', '""')}"`;
+      }
+      return text;
+    }
+
+    function buildCsv() {
+      const lines = [];
+      lines.push([
+        "recordType",
+        "actualMonths",
+        "goalMode",
+        "goalValue",
+        "profitAllocationMode",
+        "commonAllocationMode",
+        "type",
+        "name",
+        "sales",
+        "cogs",
+        "variableSga",
+        "fixedSga",
+        "customWeight"
+      ].join(","));
+
+      lines.push([
+        "settings",
+        state.actualMonths,
+        state.goalMode,
+        state.goalValue,
+        state.profitAllocationMode,
+        state.commonAllocationMode,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ].map(csvCell).join(","));
+
+      state.rows.forEach((row) => {
+        lines.push([
+          "department",
+          "",
+          "",
+          "",
+          "",
+          "",
+          row.type,
+          row.name,
+          row.sales,
+          row.cogs,
+          row.variableSga,
+          row.fixedSga,
+          row.customWeight
+        ].map(csvCell).join(","));
+      });
+
+      return "\uFEFF" + lines.join("\n");
+    }
+
+    function downloadCsv() {
+      const blob = new Blob([buildCsv()], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "business-plan-simulator-input.csv";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      saveStatusEl.textContent = "入力データをCSVファイルとして保存しました。";
+    }
+
+    document.getElementById("addBusinessButton").addEventListener("click", () => addRow("business"));
+    document.getElementById("addCommonButton").addEventListener("click", () => addRow("common"));
+    document.getElementById("loadSampleButton").addEventListener("click", () => loadState(sampleState));
+    document.getElementById("saveButton").addEventListener("click", () => {
+      renderAll();
+      saveLocalState();
+    });
+    document.getElementById("exportButton").addEventListener("click", () => {
+      renderAll();
+      downloadJson();
+    });
+    document.getElementById("exportCsvButton").addEventListener("click", () => {
+      renderAll();
+      downloadCsv();
+    });
+    document.getElementById("importButton").addEventListener("click", () => fileInputEl.click());
+    breakEvenTargetEl.addEventListener("change", () => {
+      const result = computeScenario();
+      renderBreakEvenChart(result);
+    });
+
+    fileInputEl.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        loadState(parsed);
+        saveStatusEl.textContent = "JSONファイルを読込んで入力値を反映しました。";
+      } catch (error) {
+        warningBoxEl.classList.remove("hidden");
+        warningBoxEl.innerHTML = `<div>JSONの読込に失敗しました。形式を確認してください。</div>`;
+      } finally {
+        fileInputEl.value = "";
+      }
+    });
+
+    document.addEventListener("input", (event) => {
+      if (event.target.closest("input, select, textarea")) {
+        renderAll();
+      }
+    });
+
+    document.addEventListener("change", (event) => {
+      if (event.target.matches('input[name="goalMode"], input[name="profitAllocationMode"], input[name="commonAllocationMode"]')) {
+        renderAll();
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      renderAll();
+    });
+
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-remove-id]");
+      if (!button) return;
+      state.rows = state.rows.filter((row) => row.id !== button.dataset.removeId);
+      if (state.rows.length === 0) {
+        state.rows = [createRow("business")];
+      }
+      renderRows();
+      renderAll();
+    });
+
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        loadState(JSON.parse(stored));
+      } catch (error) {
+        loadState(sampleState);
+      }
+    } else {
+      loadState(sampleState);
+    }
+  </script>
+</body>
+</html>
