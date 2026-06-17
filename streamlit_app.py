@@ -12,6 +12,11 @@ import streamlit as st
 TYPE_LABELS = {"business": "事業部", "common": "共通部門"}
 TYPE_VALUES = list(TYPE_LABELS.values())
 MONEY_INPUT_COLUMNS = ["sales", "cogs", "variable_sga", "fixed_sga", "planned_fixed_sga"]
+MONTH_COLUMNS = [f"month_{index:02d}" for index in range(1, 13)]
+MONTH_LABELS = ["10月", "11月", "12月", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月"]
+MONTH_COLUMN_LABELS = dict(zip(MONTH_COLUMNS, MONTH_LABELS))
+PL_CATEGORIES = ["売上", "売上原価", "販管費"]
+COST_BEHAVIORS = ["売上", "変動費", "固定費"]
 GOAL_MODES = {"amount": "目標営業利益額", "margin": "目標営業利益率"}
 ALLOCATION_MODES = {
     "contribution": "限界利益シェア",
@@ -119,6 +124,15 @@ def sample_rows() -> list[dict]:
     ]
 
 
+def sample_accounts() -> list[dict]:
+    return [
+        {"account_name": "売上高", "pl_category": "売上", "cost_behavior": "売上"},
+        {"account_name": "売上原価", "pl_category": "売上原価", "cost_behavior": "変動費"},
+        {"account_name": "広告宣伝費", "pl_category": "販管費", "cost_behavior": "変動費"},
+        {"account_name": "人件費", "pl_category": "販管費", "cost_behavior": "固定費"},
+    ]
+
+
 def blank_row(row_type: str, name: str) -> dict:
     return {
         "type": row_type,
@@ -132,6 +146,10 @@ def blank_row(row_type: str, name: str) -> dict:
     }
 
 
+def blank_account() -> dict:
+    return {"account_name": "新規勘定科目", "pl_category": "販管費", "cost_behavior": "固定費"}
+
+
 def init_state() -> None:
     defaults = {
         "actual_months": 6,
@@ -141,12 +159,23 @@ def init_state() -> None:
         "common_allocation_mode": "sales",
         "use_fixed_cost_plan": False,
         "rows_df": pd.DataFrame(sample_rows()),
+        "accounts_df": pd.DataFrame(sample_accounts()),
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
     if "rows_editor_df" not in st.session_state:
         st.session_state.rows_editor_df = input_editor_rows(st.session_state.rows_df)
+    if "accounts_editor_df" not in st.session_state:
+        st.session_state.accounts_editor_df = normalize_accounts(st.session_state.accounts_df)
+    if "monthly_budget_df" not in st.session_state:
+        st.session_state.monthly_budget_df = sync_monthly_budget_rows(
+            st.session_state.rows_df,
+            st.session_state.accounts_df,
+            pd.DataFrame(),
+        )
+    if "monthly_budget_editor_df" not in st.session_state:
+        st.session_state.monthly_budget_editor_df = monthly_budget_editor_rows(st.session_state.monthly_budget_df)
 
 
 def display_number(value: float) -> str:
@@ -216,6 +245,280 @@ def set_rows_state(df: pd.DataFrame) -> None:
     normalized = normalize_rows(df)
     st.session_state.rows_df = normalized
     st.session_state.rows_editor_df = input_editor_rows(normalized)
+    if "accounts_df" in st.session_state:
+        set_monthly_budget_state(
+            sync_monthly_budget_rows(
+                normalized,
+                st.session_state.accounts_df,
+                st.session_state.get("monthly_budget_df", pd.DataFrame()),
+            )
+        )
+
+
+def normalize_accounts(df: pd.DataFrame) -> pd.DataFrame:
+    expected = ["account_name", "pl_category", "cost_behavior"]
+    for column in expected:
+        if column not in df.columns:
+            df[column] = ""
+    accounts = df[expected].copy()
+    accounts["account_name"] = accounts["account_name"].fillna("").astype(str).str.strip()
+    accounts = accounts[accounts["account_name"] != ""].copy()
+    accounts["pl_category"] = accounts["pl_category"].where(accounts["pl_category"].isin(PL_CATEGORIES), "販管費")
+    accounts["cost_behavior"] = accounts["cost_behavior"].where(
+        accounts["cost_behavior"].isin(COST_BEHAVIORS), "固定費"
+    )
+    accounts.loc[accounts["pl_category"] == "売上", "cost_behavior"] = "売上"
+    accounts.loc[accounts["pl_category"] == "売上原価", "cost_behavior"] = "変動費"
+    accounts = accounts.drop_duplicates(subset=["account_name"], keep="first").reset_index(drop=True)
+    if accounts.empty:
+        accounts = pd.DataFrame(sample_accounts())
+    return accounts
+
+
+def set_accounts_state(df: pd.DataFrame) -> None:
+    normalized = normalize_accounts(df)
+    st.session_state.accounts_df = normalized
+    st.session_state.accounts_editor_df = normalized.copy()
+    set_monthly_budget_state(
+        sync_monthly_budget_rows(
+            st.session_state.rows_df,
+            normalized,
+            st.session_state.get("monthly_budget_df", pd.DataFrame()),
+        )
+    )
+
+
+def monthly_budget_key(row_type: str, name: str, account_name: str) -> str:
+    return f"{row_type}::{name}::{account_name}"
+
+
+def normalize_monthly_budget_rows(df: pd.DataFrame) -> pd.DataFrame:
+    expected = ["type", "name", "account_name", "pl_category", "cost_behavior", *MONTH_COLUMNS]
+    for column in expected:
+        if column not in df.columns:
+            df[column] = "" if column in {"type", "name", "account_name", "pl_category", "cost_behavior"} else 0.0
+    budget = df[expected].copy()
+    budget["type"] = budget["type"].map({"business": "事業部", "common": "共通部門"}).fillna(budget["type"])
+    budget.loc[~budget["type"].isin(TYPE_VALUES), "type"] = "事業部"
+    for column in ["name", "account_name"]:
+        budget[column] = budget[column].fillna("").astype(str).str.strip()
+    budget["pl_category"] = budget["pl_category"].where(budget["pl_category"].isin(PL_CATEGORIES), "販管費")
+    budget["cost_behavior"] = budget["cost_behavior"].where(budget["cost_behavior"].isin(COST_BEHAVIORS), "固定費")
+    for column in MONTH_COLUMNS:
+        budget[column] = budget[column].map(parse_input_number)
+    return budget
+
+
+def monthly_budget_editor_rows(df: pd.DataFrame) -> pd.DataFrame:
+    budget = normalize_monthly_budget_rows(df)
+    editor_df = budget.copy()
+    for column in MONTH_COLUMNS:
+        editor_df[column] = editor_df[column].map(display_number)
+    return editor_df
+
+
+def normalize_monthly_budget_editor_rows(df: pd.DataFrame) -> pd.DataFrame:
+    return normalize_monthly_budget_rows(df)
+
+
+def sync_monthly_budget_rows(rows_df: pd.DataFrame, accounts_df: pd.DataFrame, existing_df: pd.DataFrame) -> pd.DataFrame:
+    rows = normalize_rows(rows_df)
+    accounts = normalize_accounts(accounts_df)
+    existing = normalize_monthly_budget_rows(existing_df) if not existing_df.empty else pd.DataFrame()
+    existing_map: dict[str, dict] = {}
+    if not existing.empty:
+        for row in existing.to_dict("records"):
+            existing_map[monthly_budget_key(row["type"], row["name"], row["account_name"])] = row
+
+    records = []
+    for division in rows[["type", "name"]].to_dict("records"):
+        for account in accounts.to_dict("records"):
+            key = monthly_budget_key(division["type"], division["name"], account["account_name"])
+            current = existing_map.get(key, {})
+            record = {
+                "type": division["type"],
+                "name": division["name"],
+                "account_name": account["account_name"],
+                "pl_category": account["pl_category"],
+                "cost_behavior": account["cost_behavior"],
+            }
+            for column in MONTH_COLUMNS:
+                record[column] = parse_input_number(current.get(column, 0.0))
+            records.append(record)
+    return normalize_monthly_budget_rows(pd.DataFrame(records))
+
+
+def set_monthly_budget_state(df: pd.DataFrame) -> None:
+    normalized = normalize_monthly_budget_rows(df)
+    st.session_state.monthly_budget_df = normalized
+    st.session_state.monthly_budget_editor_df = monthly_budget_editor_rows(normalized)
+
+
+def summarize_monthly_budget(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    budget = normalize_monthly_budget_rows(df)
+    if budget.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    budget = budget.copy()
+    budget["annual_total"] = budget[MONTH_COLUMNS].sum(axis=1)
+    summary_records = []
+    for (row_type, name), group in budget.groupby(["type", "name"], sort=False):
+        sales = group.loc[group["pl_category"] == "売上", "annual_total"].sum()
+        cogs = group.loc[group["pl_category"] == "売上原価", "annual_total"].sum()
+        variable_sga = group.loc[
+            (group["pl_category"] == "販管費") & (group["cost_behavior"] == "変動費"),
+            "annual_total",
+        ].sum()
+        fixed_sga = group.loc[
+            (group["pl_category"] == "販管費") & (group["cost_behavior"] == "固定費"),
+            "annual_total",
+        ].sum()
+        summary_records.append(
+            {
+                "type": row_type,
+                "name": name,
+                "sales": sales,
+                "cogs": cogs,
+                "variable_sga": variable_sga,
+                "fixed_sga": fixed_sga,
+                "planned_fixed_sga": fixed_sga,
+                "custom_weight": 1.0,
+            }
+        )
+
+    annual_summary = pd.DataFrame(summary_records)
+    existing_weights = normalize_rows(st.session_state.get("rows_df", pd.DataFrame()))
+    if not existing_weights.empty and not annual_summary.empty:
+        annual_summary = annual_summary.merge(
+            existing_weights[["type", "name", "custom_weight"]],
+            on=["type", "name"],
+            how="left",
+            suffixes=("", "_existing"),
+        )
+        annual_summary["custom_weight"] = annual_summary["custom_weight_existing"].fillna(
+            annual_summary["custom_weight"]
+        )
+        annual_summary = annual_summary.drop(columns=["custom_weight_existing"])
+
+    monthly_records = []
+    for column, label in MONTH_COLUMN_LABELS.items():
+        sales = budget.loc[budget["pl_category"] == "売上", column].sum()
+        cogs = budget.loc[budget["pl_category"] == "売上原価", column].sum()
+        variable_sga = budget.loc[
+            (budget["pl_category"] == "販管費") & (budget["cost_behavior"] == "変動費"),
+            column,
+        ].sum()
+        fixed_sga = budget.loc[
+            (budget["pl_category"] == "販管費") & (budget["cost_behavior"] == "固定費"),
+            column,
+        ].sum()
+        monthly_records.append(
+            {
+                "月": label,
+                "売上": sales,
+                "売上原価": cogs,
+                "売上総利益": sales - cogs,
+                "販管費(変動)": variable_sga,
+                "販管費(固定)": fixed_sga,
+                "営業利益": sales - cogs - variable_sga - fixed_sga,
+            }
+        )
+
+    return normalize_rows(annual_summary), pd.DataFrame(monthly_records)
+
+
+def initialize_monthly_budget_from_rows(rows_df: pd.DataFrame, accounts_df: pd.DataFrame) -> pd.DataFrame:
+    rows = normalize_rows(rows_df)
+    accounts = normalize_accounts(accounts_df)
+    budget = sync_monthly_budget_rows(rows, accounts, pd.DataFrame())
+
+    bucket_accounts = {
+        "sales": accounts.loc[accounts["pl_category"] == "売上", "account_name"].tolist(),
+        "cogs": accounts.loc[accounts["pl_category"] == "売上原価", "account_name"].tolist(),
+        "variable_sga": accounts.loc[
+            (accounts["pl_category"] == "販管費") & (accounts["cost_behavior"] == "変動費"),
+            "account_name",
+        ].tolist(),
+        "fixed_sga": accounts.loc[
+            (accounts["pl_category"] == "販管費") & (accounts["cost_behavior"] == "固定費"),
+            "account_name",
+        ].tolist(),
+    }
+    bucket_first_account = {key: values[0] if values else "" for key, values in bucket_accounts.items()}
+
+    source_map = {
+        (row["type"], row["name"]): row
+        for row in rows.to_dict("records")
+    }
+    annualization_factor = 12 / max(int(st.session_state.actual_months), 1)
+    for index, row in budget.iterrows():
+        source = source_map.get((row["type"], row["name"]), {})
+        annual_amount = 0.0
+        if row["account_name"] == bucket_first_account["sales"]:
+            annual_amount = source.get("sales", 0.0) * annualization_factor
+        elif row["account_name"] == bucket_first_account["cogs"]:
+            annual_amount = source.get("cogs", 0.0) * annualization_factor
+        elif row["account_name"] == bucket_first_account["variable_sga"]:
+            annual_amount = source.get("variable_sga", 0.0) * annualization_factor
+        elif row["account_name"] == bucket_first_account["fixed_sga"]:
+            planned_fixed_sga = source.get("planned_fixed_sga", 0.0)
+            annual_amount = planned_fixed_sga if planned_fixed_sga else source.get("fixed_sga", 0.0) * annualization_factor
+        for column in MONTH_COLUMNS:
+            budget.at[index, column] = annual_amount / 12
+    return normalize_monthly_budget_rows(budget)
+
+
+def budget_annual_display_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    view = normalize_rows(df).copy()
+    view["売上総利益"] = view["sales"] - view["cogs"]
+    view["営業利益"] = view["売上総利益"] - view["variable_sga"] - view["fixed_sga"]
+    view = view[
+        [
+            "type",
+            "name",
+            "sales",
+            "cogs",
+            "売上総利益",
+            "variable_sga",
+            "fixed_sga",
+            "営業利益",
+        ]
+    ].rename(
+        columns={
+            "type": "区分",
+            "name": "名称",
+            "sales": "売上",
+            "cogs": "売上原価",
+            "variable_sga": "販管費(変動)",
+            "fixed_sga": "販管費(固定)",
+        }
+    )
+
+    total_row = {
+        "区分": "合計",
+        "名称": f"{len(view)} 行",
+        "売上": view["売上"].sum(),
+        "売上原価": view["売上原価"].sum(),
+        "売上総利益": view["売上総利益"].sum(),
+        "販管費(変動)": view["販管費(変動)"].sum(),
+        "販管費(固定)": view["販管費(固定)"].sum(),
+        "営業利益": view["営業利益"].sum(),
+    }
+    view = pd.concat([view, pd.DataFrame([total_row])], ignore_index=True)
+    for column in ["売上", "売上原価", "売上総利益", "販管費(変動)", "販管費(固定)", "営業利益"]:
+        view[column] = view[column].map(display_number)
+    return view
+
+
+def monthly_pl_display_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    display_df = df.copy()
+    for column in ["売上", "売上原価", "売上総利益", "販管費(変動)", "販管費(固定)", "営業利益"]:
+        display_df[column] = display_df[column].map(display_number)
+    return display_df
 
 
 def annualized_rows(df: pd.DataFrame, actual_months: int) -> pd.DataFrame:
@@ -360,6 +663,7 @@ def compute_scenario(
 
 
 def to_state_json() -> str:
+    monthly_budget = normalize_monthly_budget_rows(st.session_state.monthly_budget_df).copy()
     payload = {
         "actualMonths": st.session_state.actual_months,
         "goalMode": st.session_state.goal_mode,
@@ -373,6 +677,16 @@ def to_state_json() -> str:
                 "fixed_sga": "fixedSga",
                 "planned_fixed_sga": "plannedFixedSga",
                 "custom_weight": "customWeight",
+            }
+        ).assign(type=lambda df: df["type"].map({"事業部": "business", "共通部門": "common"})).to_dict("records"),
+        "accounts": normalize_accounts(st.session_state.accounts_df).rename(
+            columns={"account_name": "accountName", "pl_category": "plCategory", "cost_behavior": "costBehavior"}
+        ).to_dict("records"),
+        "monthlyBudgets": monthly_budget.rename(
+            columns={
+                "account_name": "accountName",
+                "pl_category": "plCategory",
+                "cost_behavior": "costBehavior",
             }
         ).assign(type=lambda df: df["type"].map({"事業部": "business", "共通部門": "common"})).to_dict("records"),
     }
@@ -390,6 +704,24 @@ def load_state_payload(payload: dict) -> None:
         }
     )
     set_rows_state(rows)
+    accounts = pd.DataFrame(payload.get("accounts", []))
+    if not accounts.empty:
+        accounts = accounts.rename(
+            columns={"accountName": "account_name", "plCategory": "pl_category", "costBehavior": "cost_behavior"}
+        )
+        set_accounts_state(accounts)
+    monthly_budget = pd.DataFrame(payload.get("monthlyBudgets", []))
+    if not monthly_budget.empty:
+        monthly_budget = monthly_budget.rename(
+            columns={"accountName": "account_name", "plCategory": "pl_category", "costBehavior": "cost_behavior"}
+        )
+        set_monthly_budget_state(
+            sync_monthly_budget_rows(
+                st.session_state.rows_df,
+                st.session_state.accounts_df,
+                monthly_budget,
+            )
+        )
     st.session_state.actual_months = int(payload.get("actualMonths", 6))
     st.session_state.goal_mode = payload.get("goalMode", "amount")
     st.session_state.goal_value = float(payload.get("goalValue", 8000))
@@ -859,7 +1191,7 @@ with st.sidebar:
         help="ONにすると、入力タブの固定費計画(年額)を使って必要売上高を逆算します。",
     )
 
-tabs = st.tabs(["入力", "結果", "グラフ", "保存/読込"])
+tabs = st.tabs(["入力", "月次予算", "結果", "グラフ", "保存/読込"])
 
 with tabs[0]:
     st.subheader("事業部・共通部門の実績入力")
@@ -882,6 +1214,13 @@ with tabs[0]:
     normalized_edited = normalize_input_editor_rows(edited)
     st.session_state.rows_df = normalized_edited
     st.session_state.rows_editor_df = input_editor_rows(normalized_edited)
+    set_monthly_budget_state(
+        sync_monthly_budget_rows(
+            st.session_state.rows_df,
+            st.session_state.accounts_df,
+            st.session_state.get("monthly_budget_df", pd.DataFrame()),
+        )
+    )
     input_totals = st.session_state.rows_df.copy()
     input_total_table = pd.DataFrame(
         [
@@ -921,6 +1260,94 @@ with tabs[0]:
         set_rows_state(rows)
         st.rerun()
 
+
+with tabs[1]:
+    st.subheader("勘定科目マスタ")
+    accounts_edited = st.data_editor(
+        st.session_state.accounts_editor_df,
+        hide_index=True,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "account_name": st.column_config.TextColumn("勘定科目", required=True),
+            "pl_category": st.column_config.SelectboxColumn("PL区分", options=PL_CATEGORIES, required=True),
+            "cost_behavior": st.column_config.SelectboxColumn("固変区分", options=COST_BEHAVIORS, required=True),
+        },
+    )
+    raw_account_count = len(accounts_edited)
+    normalized_accounts = normalize_accounts(accounts_edited)
+    if raw_account_count != len(normalized_accounts):
+        st.warning("空欄または重複した勘定科目は集計対象から除外しています。")
+    set_accounts_state(normalized_accounts)
+
+    account_cols = st.columns([1, 1, 4])
+    if account_cols[0].button("勘定科目を追加"):
+        set_accounts_state(pd.concat([st.session_state.accounts_df, pd.DataFrame([blank_account()])], ignore_index=True))
+        st.rerun()
+    if account_cols[1].button("月次予算を同期"):
+        set_monthly_budget_state(
+            sync_monthly_budget_rows(
+                st.session_state.rows_df,
+                st.session_state.accounts_df,
+                st.session_state.monthly_budget_df,
+            )
+        )
+        st.rerun()
+
+    st.divider()
+    st.subheader("月次予算入力")
+    budget_col1, budget_col2 = st.columns([1, 4])
+    if budget_col1.button("現在の入力から初期化"):
+        set_monthly_budget_state(initialize_monthly_budget_from_rows(st.session_state.rows_df, st.session_state.accounts_df))
+        st.rerun()
+
+    budget_column_config = {
+        "type": st.column_config.TextColumn("区分", disabled=True),
+        "name": st.column_config.TextColumn("名称", disabled=True),
+        "account_name": st.column_config.TextColumn("勘定科目", disabled=True),
+        "pl_category": st.column_config.TextColumn("PL区分", disabled=True),
+        "cost_behavior": st.column_config.TextColumn("固変区分", disabled=True),
+    }
+    for column, label in MONTH_COLUMN_LABELS.items():
+        budget_column_config[column] = st.column_config.TextColumn(label, help="カンマ付きで入力できます。")
+
+    budget_edited = st.data_editor(
+        st.session_state.monthly_budget_editor_df,
+        hide_index=True,
+        use_container_width=True,
+        column_config=budget_column_config,
+        disabled=["type", "name", "account_name", "pl_category", "cost_behavior"],
+    )
+    set_monthly_budget_state(normalize_monthly_budget_editor_rows(budget_edited))
+
+    annual_budget_rows, monthly_budget_pl = summarize_monthly_budget(st.session_state.monthly_budget_df)
+    st.subheader("月次予算の集計")
+    st.dataframe(budget_annual_display_table(annual_budget_rows), use_container_width=True, hide_index=True)
+    st.dataframe(monthly_pl_display_table(monthly_budget_pl), use_container_width=True, hide_index=True)
+
+    chart_df = monthly_budget_pl.melt("月", var_name="区分", value_name="金額")
+    chart_df = chart_df[chart_df["区分"].isin(["売上", "売上総利益", "営業利益"])]
+    monthly_chart = (
+        alt.Chart(chart_df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("月:N", title="月", sort=MONTH_LABELS),
+            y=alt.Y("金額:Q", title="金額"),
+            color=alt.Color("区分:N", title=""),
+            tooltip=["月", "区分", alt.Tooltip("金額:Q", format=",.0f")],
+        )
+        .properties(height=280)
+    )
+    st.altair_chart(monthly_chart, use_container_width=True)
+
+    if st.button("月次予算をシミュレーション入力へ反映", type="primary"):
+        set_rows_state(annual_budget_rows)
+        st.session_state.actual_months = 12
+        st.session_state.use_fixed_cost_plan = True
+        st.success("月次予算の年額を入力タブへ反映しました。")
+        st.rerun()
+
+
 scenario = compute_scenario(
     st.session_state.rows_df,
     st.session_state.actual_months,
@@ -931,7 +1358,7 @@ scenario = compute_scenario(
     st.session_state.use_fixed_cost_plan,
 )
 
-with tabs[1]:
+with tabs[2]:
     for warning in scenario["warnings"]:
         st.warning(warning)
     summary = scenario["summary"]
@@ -955,10 +1382,10 @@ with tabs[1]:
     )
     render_result_insights(scenario["target"], scenario["summary"])
 
-with tabs[2]:
+with tabs[3]:
     render_charts(scenario["target"], scenario["summary"])
 
-with tabs[3]:
+with tabs[4]:
     st.subheader("保存/読込")
     json_text = to_state_json()
     drive_tab, local_tab = st.tabs(["Google Drive", "ローカルファイル"])
@@ -974,6 +1401,12 @@ with tabs[3]:
             "結果をCSV保存",
             format_table(scenario["target"]).to_csv(index=False).encode("utf-8-sig"),
             file_name="business-plan-result.csv",
+            mime="text/csv",
+        )
+        st.download_button(
+            "月次予算をCSV保存",
+            normalize_monthly_budget_rows(st.session_state.monthly_budget_df).to_csv(index=False).encode("utf-8-sig"),
+            file_name="business-plan-monthly-budget.csv",
             mime="text/csv",
         )
         uploaded = st.file_uploader("JSONを読込", type=["json"])
