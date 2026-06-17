@@ -160,6 +160,9 @@ def init_state() -> None:
         "use_fixed_cost_plan": False,
         "rows_df": pd.DataFrame(sample_rows()),
         "accounts_df": pd.DataFrame(sample_accounts()),
+        "current_drive_file_id": "",
+        "current_drive_file_name": "",
+        "current_drive_file_link": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -286,6 +289,12 @@ def set_accounts_state(df: pd.DataFrame) -> None:
             st.session_state.get("monthly_budget_df", pd.DataFrame()),
         )
     )
+
+
+def account_definitions_changed(current_df: pd.DataFrame, next_df: pd.DataFrame) -> bool:
+    current = normalize_accounts(current_df).reset_index(drop=True)
+    next_accounts = normalize_accounts(next_df).reset_index(drop=True)
+    return not current.equals(next_accounts)
 
 
 def monthly_budget_key(row_type: str, name: str, account_name: str) -> str:
@@ -784,7 +793,7 @@ def list_drive_json_files() -> list[dict]:
         service.files()
         .list(
             q=query,
-            fields="files(id,name,createdTime,modifiedTime,size)",
+            fields="files(id,name,createdTime,modifiedTime,size,webViewLink)",
             orderBy="modifiedTime desc",
             pageSize=100,
             supportsAllDrives=True,
@@ -845,6 +854,42 @@ def upload_json_to_drive(file_name: str, content: str) -> dict:
     )
 
 
+def update_json_in_drive(file_id: str, content: str) -> dict:
+    from googleapiclient.http import MediaIoBaseUpload
+
+    service = drive_service()
+    media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="application/json", resumable=False)
+    return (
+        service.files()
+        .update(fileId=file_id, media_body=media, fields="id,name,webViewLink", supportsAllDrives=True)
+        .execute()
+    )
+
+
+def set_current_drive_file(file_info: dict) -> None:
+    st.session_state.current_drive_file_id = file_info.get("id", "")
+    st.session_state.current_drive_file_name = file_info.get("name", "")
+    st.session_state.current_drive_file_link = file_info.get("webViewLink", "")
+
+
+def clear_current_drive_file() -> None:
+    st.session_state.current_drive_file_id = ""
+    st.session_state.current_drive_file_name = ""
+    st.session_state.current_drive_file_link = ""
+
+
+def overwrite_current_drive_json() -> tuple[bool, str]:
+    file_id = st.session_state.get("current_drive_file_id", "")
+    if not file_id:
+        return False, "Drive上の読込元JSONがないため、自動上書きは行いませんでした。"
+    try:
+        saved = update_json_in_drive(file_id, to_state_json())
+        set_current_drive_file(saved)
+        return True, f"現在のDrive JSONを上書きしました: {saved.get('name', file_id)}"
+    except Exception as exc:
+        return False, f"現在のDrive JSONの上書きに失敗しました: {exc}"
+
+
 def download_json_from_drive(file_id: str) -> dict:
     from googleapiclient.http import MediaIoBaseDownload
 
@@ -872,6 +917,7 @@ def auto_load_latest_drive_file() -> None:
             return
         latest = files[0]
         load_state_payload(download_json_from_drive(latest["id"]))
+        set_current_drive_file(latest)
         st.session_state.drive_loaded_notice = f"Google Driveの最新JSONを読み込みました: {latest['name']}"
     except Exception as exc:
         st.session_state.drive_auto_load_error = f"Google Driveからの自動読込に失敗しました: {exc}"
@@ -1263,22 +1309,30 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader("勘定科目マスタ")
-    accounts_edited = st.data_editor(
-        st.session_state.accounts_editor_df,
-        hide_index=True,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "account_name": st.column_config.TextColumn("勘定科目", required=True),
-            "pl_category": st.column_config.SelectboxColumn("PL区分", options=PL_CATEGORIES, required=True),
-            "cost_behavior": st.column_config.SelectboxColumn("固変区分", options=COST_BEHAVIORS, required=True),
-        },
-    )
-    raw_account_count = len(accounts_edited)
-    normalized_accounts = normalize_accounts(accounts_edited)
-    if raw_account_count != len(normalized_accounts):
-        st.warning("空欄または重複した勘定科目は集計対象から除外しています。")
-    set_accounts_state(normalized_accounts)
+    with st.form("accounts_form"):
+        accounts_edited = st.data_editor(
+            st.session_state.accounts_editor_df,
+            hide_index=True,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="accounts_editor",
+            column_config={
+                "account_name": st.column_config.TextColumn("勘定科目", required=True),
+                "pl_category": st.column_config.SelectboxColumn("PL区分", options=PL_CATEGORIES, required=True),
+                "cost_behavior": st.column_config.SelectboxColumn("固変区分", options=COST_BEHAVIORS, required=True),
+            },
+        )
+        accounts_submitted = st.form_submit_button("勘定科目マスタを更新")
+    if accounts_submitted:
+        raw_account_count = len(accounts_edited)
+        normalized_accounts = normalize_accounts(accounts_edited)
+        if raw_account_count != len(normalized_accounts):
+            st.warning("空欄または重複した勘定科目は集計対象から除外しています。")
+        if account_definitions_changed(st.session_state.accounts_df, normalized_accounts):
+            set_accounts_state(normalized_accounts)
+            st.success("勘定科目マスタを更新しました。")
+            st.rerun()
+        st.info("勘定科目マスタに変更はありません。")
 
     account_cols = st.columns([1, 1, 4])
     if account_cols[0].button("勘定科目を追加"):
@@ -1311,14 +1365,24 @@ with tabs[1]:
     for column, label in MONTH_COLUMN_LABELS.items():
         budget_column_config[column] = st.column_config.TextColumn(label, help="カンマ付きで入力できます。")
 
-    budget_edited = st.data_editor(
-        st.session_state.monthly_budget_editor_df,
-        hide_index=True,
-        use_container_width=True,
-        column_config=budget_column_config,
-        disabled=["type", "name", "account_name", "pl_category", "cost_behavior"],
-    )
-    set_monthly_budget_state(normalize_monthly_budget_editor_rows(budget_edited))
+    with st.form("monthly_budget_form"):
+        budget_edited = st.data_editor(
+            st.session_state.monthly_budget_editor_df,
+            hide_index=True,
+            use_container_width=True,
+            key="monthly_budget_editor",
+            column_config=budget_column_config,
+            disabled=["type", "name", "account_name", "pl_category", "cost_behavior"],
+        )
+        monthly_budget_submitted = st.form_submit_button("月次予算を更新")
+    if monthly_budget_submitted:
+        set_monthly_budget_state(normalize_monthly_budget_editor_rows(budget_edited))
+        saved_to_drive, drive_message = overwrite_current_drive_json()
+        if saved_to_drive:
+            st.success(f"月次予算を更新し、{drive_message}")
+        else:
+            st.success("月次予算を更新しました。")
+            st.info(drive_message)
 
     annual_budget_rows, monthly_budget_pl = summarize_monthly_budget(st.session_state.monthly_budget_df)
     st.subheader("月次予算の集計")
@@ -1413,6 +1477,7 @@ with tabs[4]:
         if uploaded is not None:
             try:
                 load_json(uploaded)
+                clear_current_drive_file()
                 st.success("JSONを読込みました。")
                 st.rerun()
             except Exception as exc:
@@ -1431,6 +1496,9 @@ with tabs[4]:
                 st.caption(target_message)
             else:
                 st.error(target_message)
+            current_drive_name = st.session_state.get("current_drive_file_name", "")
+            if current_drive_name:
+                st.caption(f"現在のDrive JSON: {current_drive_name}")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
             default_name = f"business-plan-scenario_{timestamp}.json"
             drive_file_name = st.text_input("Drive保存ファイル名", value=default_name)
@@ -1440,6 +1508,7 @@ with tabs[4]:
                 else:
                     try:
                         saved = upload_json_to_drive(drive_file_name, json_text)
+                        set_current_drive_file(saved)
                         st.success(f"Google Driveへ保存しました: {saved.get('name')}")
                         if saved.get("webViewLink"):
                             st.link_button("Google Driveで開く", saved["webViewLink"])
@@ -1470,6 +1539,8 @@ with tabs[4]:
                     try:
                         payload = download_json_from_drive(labels[selected_label])
                         load_state_payload(payload)
+                        selected_file = next((item for item in files if item["id"] == labels[selected_label]), {})
+                        set_current_drive_file(selected_file)
                         st.success("Google DriveのJSONを読込みました。")
                         st.rerun()
                     except Exception as exc:
