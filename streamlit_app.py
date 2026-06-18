@@ -126,10 +126,10 @@ def sample_rows() -> list[dict]:
 
 def sample_accounts() -> list[dict]:
     return [
-        {"account_name": "売上高", "pl_category": "売上", "cost_behavior": "売上"},
-        {"account_name": "売上原価", "pl_category": "売上原価", "cost_behavior": "変動費"},
-        {"account_name": "広告宣伝費", "pl_category": "販管費", "cost_behavior": "変動費"},
-        {"account_name": "人件費", "pl_category": "販管費", "cost_behavior": "固定費"},
+        {"account_name": "売上高", "pl_category": "売上", "cost_behavior": "売上", "sales_ratio": 0.0},
+        {"account_name": "売上原価", "pl_category": "売上原価", "cost_behavior": "変動費", "sales_ratio": 0.0},
+        {"account_name": "広告宣伝費", "pl_category": "販管費", "cost_behavior": "変動費", "sales_ratio": 0.0},
+        {"account_name": "人件費", "pl_category": "販管費", "cost_behavior": "固定費", "sales_ratio": 0.0},
     ]
 
 
@@ -147,7 +147,7 @@ def blank_row(row_type: str, name: str) -> dict:
 
 
 def blank_account() -> dict:
-    return {"account_name": "新規勘定科目", "pl_category": "販管費", "cost_behavior": "固定費"}
+    return {"account_name": "新規勘定科目", "pl_category": "販管費", "cost_behavior": "固定費", "sales_ratio": 0.0}
 
 
 def init_state() -> None:
@@ -160,6 +160,9 @@ def init_state() -> None:
         "use_fixed_cost_plan": False,
         "rows_df": pd.DataFrame(sample_rows()),
         "accounts_df": pd.DataFrame(sample_accounts()),
+        "reverse_monthly_weights_df": pd.DataFrame(
+            {"month": MONTH_LABELS, "weight": [100 / len(MONTH_LABELS)] * len(MONTH_LABELS)}
+        ),
         "current_drive_file_id": "",
         "current_drive_file_name": "",
         "current_drive_file_link": "",
@@ -179,6 +182,10 @@ def init_state() -> None:
         )
     if "monthly_budget_editor_df" not in st.session_state:
         st.session_state.monthly_budget_editor_df = monthly_budget_editor_rows(st.session_state.monthly_budget_df)
+    if "reverse_monthly_weights_editor_df" not in st.session_state:
+        st.session_state.reverse_monthly_weights_editor_df = reverse_monthly_weights_editor_rows(
+            st.session_state.reverse_monthly_weights_df
+        )
 
 
 def display_number(value: float) -> str:
@@ -259,10 +266,10 @@ def set_rows_state(df: pd.DataFrame) -> None:
 
 
 def normalize_accounts(df: pd.DataFrame) -> pd.DataFrame:
-    expected = ["account_name", "pl_category", "cost_behavior"]
+    expected = ["account_name", "pl_category", "cost_behavior", "sales_ratio"]
     for column in expected:
         if column not in df.columns:
-            df[column] = ""
+            df[column] = "" if column in {"account_name", "pl_category", "cost_behavior"} else 0.0
     accounts = df[expected].copy()
     accounts["account_name"] = accounts["account_name"].fillna("").astype(str).str.strip()
     accounts = accounts[accounts["account_name"] != ""].copy()
@@ -272,6 +279,11 @@ def normalize_accounts(df: pd.DataFrame) -> pd.DataFrame:
     )
     accounts.loc[accounts["pl_category"] == "売上", "cost_behavior"] = "売上"
     accounts.loc[accounts["pl_category"] == "売上原価", "cost_behavior"] = "変動費"
+    accounts["sales_ratio"] = pd.to_numeric(accounts["sales_ratio"], errors="coerce").fillna(0.0).clip(lower=0)
+    accounts.loc[
+        ~((accounts["pl_category"] == "販管費") & (accounts["cost_behavior"] == "変動費")),
+        "sales_ratio",
+    ] = 0.0
     accounts = accounts.drop_duplicates(subset=["account_name"], keep="first").reset_index(drop=True)
     if accounts.empty:
         accounts = pd.DataFrame(sample_accounts())
@@ -530,6 +542,190 @@ def monthly_pl_display_table(df: pd.DataFrame) -> pd.DataFrame:
     return display_df
 
 
+def normalize_reverse_monthly_weights(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame({"month": MONTH_LABELS, "weight": [100 / len(MONTH_LABELS)] * len(MONTH_LABELS)})
+    source = df.copy()
+    if "month" not in source.columns:
+        source["month"] = MONTH_LABELS[: len(source)]
+    if "weight" not in source.columns:
+        source["weight"] = 0.0
+    source["month"] = source["month"].fillna("").astype(str)
+    source["weight"] = source["weight"].map(parse_input_number)
+    weight_map = dict(zip(source["month"], source["weight"]))
+    weights = pd.DataFrame({"month": MONTH_LABELS})
+    weights["weight"] = weights["month"].map(weight_map).fillna(0.0)
+    if weights["weight"].sum() <= 0:
+        weights["weight"] = 100 / len(MONTH_LABELS)
+    return weights
+
+
+def reverse_monthly_weights_editor_rows(df: pd.DataFrame) -> pd.DataFrame:
+    weights = normalize_reverse_monthly_weights(df)
+    editor_df = weights.copy()
+    editor_df["weight"] = editor_df["weight"].map(lambda value: f"{value:.2f}")
+    return editor_df
+
+
+def set_reverse_monthly_weights_state(df: pd.DataFrame) -> None:
+    normalized = normalize_reverse_monthly_weights(df)
+    st.session_state.reverse_monthly_weights_df = normalized
+    st.session_state.reverse_monthly_weights_editor_df = reverse_monthly_weights_editor_rows(normalized)
+
+
+def normalize_reverse_monthly_weights_editor_rows(df: pd.DataFrame) -> pd.DataFrame:
+    return normalize_reverse_monthly_weights(df)
+
+
+def format_reverse_monthly_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    display_df = df.copy()
+    for column in ["月別ウェイト", "原価率", "変動販管費率", "営業利益率"]:
+        if column in display_df.columns:
+            display_df[column] = display_df[column].map(display_percent)
+    for column in ["必要売上高", "必要売上原価", "必要売上総利益", "販管費(変動)", "販管費(固定)", "営業利益"]:
+        if column in display_df.columns:
+            display_df[column] = display_df[column].map(display_number)
+    return display_df
+
+
+def compute_reverse_monthly_plan(
+    df: pd.DataFrame,
+    accounts_df: pd.DataFrame,
+    monthly_budget_df: pd.DataFrame,
+    reverse_weights_df: pd.DataFrame,
+    actual_months: int,
+    goal_mode: str,
+    goal_value: float,
+    profit_allocation_mode: str,
+    common_allocation_mode: str,
+) -> dict:
+    rows = annualized_rows(df, actual_months)
+    accounts = normalize_accounts(accounts_df)
+    budget = normalize_monthly_budget_rows(monthly_budget_df)
+    weights_df = normalize_reverse_monthly_weights(reverse_weights_df)
+    warnings = []
+
+    business = rows[rows["type"] == "事業部"].copy()
+    common = rows[rows["type"] == "共通部門"].copy()
+    if business.empty:
+        return {"target": pd.DataFrame(), "monthly": pd.DataFrame(), "summary": {}, "warnings": ["少なくとも1つの事業部が必要です。"]}
+
+    variable_accounts = accounts[(accounts["pl_category"] == "販管費") & (accounts["cost_behavior"] == "変動費")]
+    variable_sga_ratio = variable_accounts["sales_ratio"].sum() / 100
+    if variable_sga_ratio <= 0:
+        warnings.append("売上比率が設定された変動費勘定科目がありません。販管費(変動)は0%として逆算します。")
+
+    fixed_budget = budget[(budget["pl_category"] == "販管費") & (budget["cost_behavior"] == "固定費")].copy()
+    if fixed_budget.empty:
+        fixed_budget = pd.DataFrame(columns=["type", "name", *MONTH_COLUMNS])
+    fixed_budget["annual_fixed_sga"] = fixed_budget[MONTH_COLUMNS].sum(axis=1)
+    fixed_by_division = fixed_budget.groupby(["type", "name"], sort=False)["annual_fixed_sga"].sum()
+
+    business["plan_fixed_sga"] = business.apply(
+        lambda row: fixed_by_division.get((row["type"], row["name"]), 0.0),
+        axis=1,
+    )
+    common["plan_fixed_sga"] = common.apply(
+        lambda row: fixed_by_division.get((row["type"], row["name"]), 0.0),
+        axis=1,
+    )
+    business["variable_sga_ratio"] = variable_sga_ratio
+    business["contribution_margin_ratio"] = 1 - business["cogs_ratio"] - business["variable_sga_ratio"]
+
+    invalid = business[business["contribution_margin_ratio"] <= 0]["name"].tolist()
+    if invalid:
+        warnings.append("限界利益率が0%以下の事業部があります: " + "、".join(invalid))
+
+    profit_weights = weights(business, profit_allocation_mode)
+    common_weights = weights(business, common_allocation_mode)
+    common_op = -common["plan_fixed_sga"].sum()
+    sales_base = (
+        business["plan_fixed_sga"].div(business["contribution_margin_ratio"])
+        .where(business["contribution_margin_ratio"] > 0, 0)
+        .sum()
+    )
+    profit_slope = (
+        profit_weights.div(business["contribution_margin_ratio"])
+        .where(business["contribution_margin_ratio"] > 0, 0)
+        .sum()
+    )
+
+    target_company_op = float(goal_value)
+    if goal_mode == "margin":
+        target_margin = goal_value / 100
+        denominator = 1 - target_margin * profit_slope
+        numerator = target_margin * (sales_base - profit_slope * common_op)
+        if denominator <= 0:
+            warnings.append("指定した目標営業利益率では解が成立しません。限界利益率や配分方法を見直してください。")
+        else:
+            target_company_op = numerator / denominator
+
+    business_profit_pool = target_company_op - common_op
+    target = business.copy()
+    target["profit_weight"] = profit_weights
+    target["common_weight"] = common_weights if common_allocation_mode != "none" else 0
+    target["direct_op"] = business_profit_pool * target["profit_weight"]
+    target["required_sales"] = (
+        (target["plan_fixed_sga"] + target["direct_op"])
+        .div(target["contribution_margin_ratio"])
+        .where(target["contribution_margin_ratio"] > 0, 0)
+    )
+    target["required_cogs"] = target["required_sales"] * target["cogs_ratio"]
+    target["required_gross_profit"] = target["required_sales"] - target["required_cogs"]
+    target["required_variable_sga"] = target["required_sales"] * target["variable_sga_ratio"]
+    target["required_fixed_sga"] = target["plan_fixed_sga"]
+    target["required_total_sga"] = target["required_variable_sga"] + target["required_fixed_sga"]
+    target["common_allocation"] = (-common_op if common_allocation_mode != "none" else 0) * target["common_weight"]
+    target["allocated_op"] = target["direct_op"] - target["common_allocation"]
+    target["allocated_op_margin"] = target["allocated_op"].div(target["required_sales"]).where(target["required_sales"] > 0, 0)
+    target["break_even_sales"] = target["plan_fixed_sga"].div(target["contribution_margin_ratio"]).where(
+        target["contribution_margin_ratio"] > 0, 0
+    )
+    target["sales_gap"] = target["required_sales"] - target["annual_sales"]
+
+    weight_total = weights_df["weight"].sum()
+    weights_df["weight_fraction"] = weights_df["weight"] / weight_total if weight_total > 0 else 1 / len(weights_df)
+    monthly_records = []
+    for column, label in MONTH_COLUMN_LABELS.items():
+        month_weight = weights_df.loc[weights_df["month"] == label, "weight_fraction"].iloc[0]
+        sales = target["required_sales"].sum() * month_weight
+        cogs = (target["required_sales"] * target["cogs_ratio"]).sum() * month_weight
+        variable_sga = sales * variable_sga_ratio
+        fixed_sga = fixed_budget[column].sum() if column in fixed_budget.columns else 0.0
+        gross_profit = sales - cogs
+        op = gross_profit - variable_sga - fixed_sga
+        monthly_records.append(
+            {
+                "月": label,
+                "月別ウェイト": month_weight,
+                "必要売上高": sales,
+                "必要売上原価": cogs,
+                "必要売上総利益": gross_profit,
+                "販管費(変動)": variable_sga,
+                "販管費(固定)": fixed_sga,
+                "営業利益": op,
+                "原価率": cogs / sales if sales else 0,
+                "変動販管費率": variable_sga_ratio,
+                "営業利益率": op / sales if sales else 0,
+            }
+        )
+
+    monthly = pd.DataFrame(monthly_records)
+    summary = {
+        "target_sales": target["required_sales"].sum(),
+        "target_cogs": target["required_cogs"].sum(),
+        "target_gross_profit": target["required_gross_profit"].sum(),
+        "target_variable_sga": target["required_variable_sga"].sum(),
+        "target_fixed_sga": target["required_fixed_sga"].sum() + common["plan_fixed_sga"].sum(),
+        "target_company_op": target_company_op,
+        "target_op_margin": target_company_op / target["required_sales"].sum() if target["required_sales"].sum() else 0,
+        "variable_sga_ratio": variable_sga_ratio,
+    }
+    return {"target": target, "monthly": monthly, "summary": summary, "warnings": warnings}
+
+
 def annualized_rows(df: pd.DataFrame, actual_months: int) -> pd.DataFrame:
     rows = normalize_rows(df)
     factor = 12 / max(actual_months, 1)
@@ -689,7 +885,12 @@ def to_state_json() -> str:
             }
         ).assign(type=lambda df: df["type"].map({"事業部": "business", "共通部門": "common"})).to_dict("records"),
         "accounts": normalize_accounts(st.session_state.accounts_df).rename(
-            columns={"account_name": "accountName", "pl_category": "plCategory", "cost_behavior": "costBehavior"}
+            columns={
+                "account_name": "accountName",
+                "pl_category": "plCategory",
+                "cost_behavior": "costBehavior",
+                "sales_ratio": "salesRatio",
+            }
         ).to_dict("records"),
         "monthlyBudgets": monthly_budget.rename(
             columns={
@@ -698,6 +899,9 @@ def to_state_json() -> str:
                 "cost_behavior": "costBehavior",
             }
         ).assign(type=lambda df: df["type"].map({"事業部": "business", "共通部門": "common"})).to_dict("records"),
+        "reverseMonthlyWeights": normalize_reverse_monthly_weights(
+            st.session_state.reverse_monthly_weights_df
+        ).rename(columns={"month": "month", "weight": "weight"}).to_dict("records"),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -716,7 +920,12 @@ def load_state_payload(payload: dict) -> None:
     accounts = pd.DataFrame(payload.get("accounts", []))
     if not accounts.empty:
         accounts = accounts.rename(
-            columns={"accountName": "account_name", "plCategory": "pl_category", "costBehavior": "cost_behavior"}
+            columns={
+                "accountName": "account_name",
+                "plCategory": "pl_category",
+                "costBehavior": "cost_behavior",
+                "salesRatio": "sales_ratio",
+            }
         )
         set_accounts_state(accounts)
     monthly_budget = pd.DataFrame(payload.get("monthlyBudgets", []))
@@ -731,6 +940,9 @@ def load_state_payload(payload: dict) -> None:
                 monthly_budget,
             )
         )
+    reverse_weights = pd.DataFrame(payload.get("reverseMonthlyWeights", []))
+    if not reverse_weights.empty:
+        set_reverse_monthly_weights_state(reverse_weights)
     st.session_state.actual_months = int(payload.get("actualMonths", 6))
     st.session_state.goal_mode = payload.get("goalMode", "amount")
     st.session_state.goal_value = float(payload.get("goalValue", 8000))
@@ -1130,6 +1342,64 @@ def render_charts(target: pd.DataFrame, summary: dict) -> None:
     st.altair_chart(alt.layer(*layers).properties(height=360), use_container_width=True)
 
 
+def render_reverse_break_even_chart(target: pd.DataFrame, summary: dict) -> None:
+    if target.empty or not summary:
+        return
+
+    st.caption("月次逆算モード 損益分岐点")
+    options = {"全社(事業部合算 + 共通費)": None} | {name: idx for idx, name in zip(target.index, target["name"])}
+    selected = st.selectbox("逆算モード 損益分岐点グラフの表示対象", list(options.keys()), key="reverse_bep_target")
+
+    if options[selected] is None:
+        required_sales = target["required_sales"].sum()
+        variable_cost = target["required_cogs"].sum() + target["required_variable_sga"].sum()
+        fixed_cost = summary["target_fixed_sga"]
+        variable_ratio = variable_cost / required_sales if required_sales else 0
+        current_sales = target["annual_sales"].sum()
+    else:
+        row = target.loc[options[selected]]
+        fixed_cost = row["plan_fixed_sga"]
+        variable_ratio = row["cogs_ratio"] + row["variable_sga_ratio"]
+        current_sales = row["annual_sales"]
+        required_sales = row["required_sales"]
+
+    contribution_ratio = 1 - variable_ratio
+    break_even_sales = fixed_cost / contribution_ratio if contribution_ratio > 0 else float("nan")
+    max_sales = max(current_sales, required_sales, break_even_sales if pd.notna(break_even_sales) else 0, 1) * 1.25
+    points = pd.DataFrame({"売上高": [0, max_sales]})
+    points["売上高線"] = points["売上高"]
+    points["総費用線"] = fixed_cost + variable_ratio * points["売上高"]
+    points["固定費線"] = fixed_cost
+    line_df = points.melt("売上高", var_name="線", value_name="金額")
+
+    base = alt.Chart(line_df).mark_line(point=True).encode(
+        x=alt.X("売上高:Q", title="売上高"),
+        y=alt.Y("金額:Q", title="金額"),
+        color=alt.Color("線:N", title=""),
+        tooltip=["線", alt.Tooltip("売上高:Q", format=",.0f"), alt.Tooltip("金額:Q", format=",.0f")],
+    )
+    layers = [base]
+    if pd.notna(break_even_sales):
+        layers.append(
+            alt.Chart(pd.DataFrame({"x": [break_even_sales]}))
+            .mark_rule(strokeDash=[6, 4], color="#b4545f")
+            .encode(x="x:Q")
+        )
+        layers.append(
+            alt.Chart(pd.DataFrame({"売上高": [break_even_sales], "金額": [break_even_sales]}))
+            .mark_point(size=90, color="#b4545f")
+            .encode(
+                x="売上高:Q",
+                y="金額:Q",
+                tooltip=[
+                    alt.Tooltip("売上高:Q", title="損益分岐点売上高", format=",.0f"),
+                    alt.Tooltip("金額:Q", title="損益分岐点費用", format=",.0f"),
+                ],
+            )
+        )
+    st.altair_chart(alt.layer(*layers).properties(height=360), use_container_width=True)
+
+
 def render_result_insights(target: pd.DataFrame, summary: dict) -> None:
     st.subheader("シミュレーション結果の読み取り")
 
@@ -1320,6 +1590,12 @@ with tabs[1]:
                 "account_name": st.column_config.TextColumn("勘定科目", required=True),
                 "pl_category": st.column_config.SelectboxColumn("PL区分", options=PL_CATEGORIES, required=True),
                 "cost_behavior": st.column_config.SelectboxColumn("固変区分", options=COST_BEHAVIORS, required=True),
+                "sales_ratio": st.column_config.NumberColumn(
+                    "売上比率(%)",
+                    min_value=0.0,
+                    step=0.1,
+                    help="販管費かつ変動費の科目だけ、月次逆算モードで売上に対する比率として使います。",
+                ),
             },
         )
         accounts_submitted = st.form_submit_button("勘定科目マスタを更新")
@@ -1410,6 +1686,103 @@ with tabs[1]:
         st.session_state.use_fixed_cost_plan = True
         st.success("月次予算の年額を入力タブへ反映しました。")
         st.rerun()
+
+    st.divider()
+    st.subheader("月次逆算モード")
+    with st.form("reverse_monthly_weights_form"):
+        reverse_weights_edited = st.data_editor(
+            st.session_state.reverse_monthly_weights_editor_df,
+            hide_index=True,
+            use_container_width=True,
+            key="reverse_monthly_weights_editor",
+            column_config={
+                "month": st.column_config.TextColumn("月", disabled=True),
+                "weight": st.column_config.TextColumn("月別ウェイト"),
+            },
+            disabled=["month"],
+        )
+        reverse_weights_submitted = st.form_submit_button("月別ウェイトを更新")
+    if reverse_weights_submitted:
+        set_reverse_monthly_weights_state(normalize_reverse_monthly_weights_editor_rows(reverse_weights_edited))
+        saved_to_drive, drive_message = overwrite_current_drive_json()
+        if saved_to_drive:
+            st.success(f"月別ウェイトを更新し、{drive_message}")
+        else:
+            st.success("月別ウェイトを更新しました。")
+            st.info(drive_message)
+
+    reverse_plan = compute_reverse_monthly_plan(
+        st.session_state.rows_df,
+        st.session_state.accounts_df,
+        st.session_state.monthly_budget_df,
+        st.session_state.reverse_monthly_weights_df,
+        st.session_state.actual_months,
+        st.session_state.goal_mode,
+        st.session_state.goal_value,
+        st.session_state.profit_allocation_mode,
+        st.session_state.common_allocation_mode,
+    )
+    for warning in reverse_plan["warnings"]:
+        st.warning(warning)
+    reverse_summary = reverse_plan["summary"]
+    if reverse_summary:
+        reverse_cols = st.columns(4)
+        with reverse_cols[0]:
+            metric_card("逆算 必要売上高", reverse_summary["target_sales"])
+        with reverse_cols[1]:
+            metric_card("逆算 必要売上原価", reverse_summary["target_cogs"])
+        with reverse_cols[2]:
+            metric_card("逆算 売上総利益", reverse_summary["target_gross_profit"])
+        with reverse_cols[3]:
+            metric_card("変動販管費率", reverse_summary["variable_sga_ratio"] * 100, "%")
+
+    if not reverse_plan["target"].empty:
+        st.dataframe(
+            build_result_display_table(reverse_plan["target"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+        render_reverse_break_even_chart(reverse_plan["target"], reverse_summary)
+    if not reverse_plan["monthly"].empty:
+        st.dataframe(
+            format_reverse_monthly_table(reverse_plan["monthly"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+        reverse_chart_df = reverse_plan["monthly"][["月", "必要売上高", "必要売上原価", "営業利益"]].melt(
+            "月", var_name="区分", value_name="金額"
+        )
+        reverse_chart = (
+            alt.Chart(reverse_chart_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("月:N", title="月", sort=MONTH_LABELS),
+                y=alt.Y("金額:Q", title="金額"),
+                color=alt.Color("区分:N", title=""),
+                tooltip=["月", "区分", alt.Tooltip("金額:Q", format=",.0f")],
+            )
+            .properties(height=280)
+        )
+        st.altair_chart(reverse_chart, use_container_width=True)
+
+        cumulative_monthly = reverse_plan["monthly"][["月", "必要売上高", "必要売上原価", "営業利益"]].copy()
+        cumulative_monthly[["必要売上高", "必要売上原価", "営業利益"]] = cumulative_monthly[
+            ["必要売上高", "必要売上原価", "営業利益"]
+        ].cumsum()
+        cumulative_chart_df = cumulative_monthly.melt("月", var_name="区分", value_name="金額")
+        cumulative_chart = (
+            alt.Chart(cumulative_chart_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("月:N", title="月", sort=MONTH_LABELS),
+                y=alt.Y("金額:Q", title="累計金額"),
+                color=alt.Color("区分:N", title=""),
+                tooltip=["月", "区分", alt.Tooltip("金額:Q", format=",.0f")],
+            )
+            .properties(height=280)
+        )
+        st.caption("月次逆算モード 累計推移")
+        st.altair_chart(cumulative_chart, use_container_width=True)
 
 
 scenario = compute_scenario(
